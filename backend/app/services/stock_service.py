@@ -12,6 +12,14 @@ from app.core.cache import ttl_cache
 from app.core.config import get_settings
 from app.services.lookup_service import load_stock_catalog, search_stock_catalog
 from app.services.market_service import build_market_overview
+from app.services.research_sources import (
+    build_announcement_cards as build_live_announcement_cards,
+    build_event_timeline,
+    build_news_cards as build_live_news_cards,
+    build_research_cards as build_live_research_cards,
+    build_research_digest,
+    build_source_matrix,
+)
 from app.services.utils import (
     clamp,
     format_billions,
@@ -1254,6 +1262,94 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
     return {"stock": stock, "risk": risk, "screening": screening}
 
 
+def _normalize_news_cards(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in items:
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        normalized.append(
+            {
+                "title": title,
+                "summary": str(item.get("summary") or ""),
+                "source": str(item.get("source") or "系统提示"),
+                "publishedAt": str(item.get("publishedAt") or ""),
+                "url": str(item.get("url") or ""),
+                "tags": list(item.get("tags") or []),
+                "signal": str(item.get("signal") or "中性"),
+            }
+        )
+    return normalized
+
+
+def _build_market_data_news_fallback(stock: dict[str, Any]) -> list[dict[str, Any]]:
+    change = to_float(stock.get("changePercent"))
+    support = stock.get("technicalView", {}).get("support") or "--"
+    resistance = stock.get("technicalView", {}).get("resistance") or "--"
+    return [
+        {
+            "title": f"{stock['name']} 当前日内涨跌幅约 {change:.2f}%。",
+            "summary": "当前优先用真实行情结果补足研究链路，便于先看趋势与风控。",
+            "source": "量价信号",
+            "publishedAt": "",
+            "url": "",
+            "tags": ["技术面"],
+            "signal": "中性",
+        },
+        {
+            "title": f"当前关键支撑位参考 {support}，压力位参考 {resistance}。",
+            "summary": "交易前更适合先写清失效位，而不是直接情绪化追涨。",
+            "source": "趋势监测",
+            "publishedAt": "",
+            "url": "",
+            "tags": ["风控"],
+            "signal": "中性",
+        },
+    ]
+
+
+def _enrich_stock_research_layers(payload: dict[str, Any], *, has_financials: bool) -> dict[str, Any]:
+    stock = payload.get("stock") or {}
+    if not stock:
+        return payload
+
+    symbol = str(stock.get("symbol") or "")
+    company_name = str(stock.get("name") or symbol)
+    industry = str(stock.get("sector") or "行业待补充")
+
+    live_announcements = build_live_announcement_cards(symbol=symbol, company_name=company_name, limit=4)
+    live_research = build_live_research_cards(symbol=symbol, company_name=company_name, limit=4)
+    live_news = build_live_news_cards(symbol=symbol, company_name=company_name, limit=4)
+
+    announcements = live_announcements or list(stock.get("announcements") or [])
+    research_reports = live_research or list(stock.get("researchReports") or [])
+    news_items = live_news or _normalize_news_cards(list(stock.get("news") or [])) or _build_market_data_news_fallback(stock)
+
+    stock["announcements"] = announcements
+    stock["researchReports"] = research_reports
+    stock["news"] = news_items
+    stock["eventTimeline"] = build_event_timeline(announcements, research_reports, news_items, limit=10)
+    stock["sourceMatrix"] = build_source_matrix(
+        has_quote=True,
+        has_financials=has_financials,
+        has_announcements=bool(announcements),
+        has_research=bool(research_reports),
+        has_news=bool(news_items),
+    )
+    stock["researchDigest"] = build_research_digest(
+        company_name=company_name,
+        industry=industry,
+        summary=str(stock.get("summary") or ""),
+        thesis=list(stock.get("thesis") or []),
+        announcements=announcements,
+        research_reports=research_reports,
+        news_items=news_items,
+        valuation_highlights=list(stock.get("valuationHighlights") or []),
+        financial_highlights=list(stock.get("financialHighlights") or []),
+    )
+    return payload
+
+
 def _build_universe_candidate(symbol: str, systemic_score: int) -> dict[str, Any] | None:
     seed = UNIVERSE_SEED_PROFILES.get(symbol)
     if not seed:
@@ -1373,18 +1469,24 @@ def _build_hot_rank_candidate(symbol: str, name: str, price: float, change_perce
 
 
 def build_stock_analysis(symbol: str, position: float = 0.45) -> dict[str, Any] | None:
-    seed_payload = _build_seed_stock_analysis(symbol=symbol, position=position)
-    if seed_payload is not None:
-        return seed_payload
-
     payload = _build_stock_payload(
         symbol=symbol,
         position=position,
         market_context={"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE},
     )
     if payload is None:
-        return _build_catalog_stock_analysis(symbol=symbol, position=position)
-    return {"stock": payload["stock"], "risk": payload["risk"]}
+        seed_payload = _build_seed_stock_analysis(symbol=symbol, position=position)
+        if seed_payload is not None:
+            return _enrich_stock_research_layers(seed_payload, has_financials=False)
+
+        catalog_payload = _build_catalog_stock_analysis(symbol=symbol, position=position)
+        if catalog_payload is not None:
+            return _enrich_stock_research_layers(catalog_payload, has_financials=False)
+        return None
+
+    has_financials = any(item.get("key") == "report_period" for item in payload["stock"].get("financialHighlights", []))
+    enriched = _enrich_stock_research_layers(payload, has_financials=has_financials)
+    return {"stock": enriched["stock"], "risk": enriched["risk"]}
 
 
 def _universe_item_from_payload(payload: dict[str, Any]) -> dict[str, Any]:

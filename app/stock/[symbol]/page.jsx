@@ -56,6 +56,42 @@ function renderResearchCards(items = [], emptyMessage) {
   ));
 }
 
+function renderDigestList(items = [], tone = "neutral") {
+  if (!items.length) {
+    return (
+      <div className="rounded-[18px] bg-slate-100 px-4 py-3 text-sm leading-7 text-slate-600">
+        当前还没有足够线索支撑这一栏，后续会随着公告、研报和资讯接入继续补强。
+      </div>
+    );
+  }
+
+  const toneClass =
+    tone === "positive"
+      ? "bg-emerald-50 text-emerald-700"
+      : tone === "negative"
+      ? "bg-rose-50 text-rose-700"
+      : "bg-slate-100 text-slate-600";
+
+  return items.map((item) => (
+    <div key={item} className={`rounded-[18px] px-4 py-3 text-sm leading-7 ${toneClass}`}>
+      {item}
+    </div>
+  ));
+}
+
+function renderSourceMatrix(items = []) {
+  return items.map((item) => (
+    <div key={item.key} className="rounded-[22px] border border-slate-900/8 bg-white/84 px-4 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium text-slate-950">{item.label}</p>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{item.status}</span>
+      </div>
+      <p className="mt-3 text-sm text-slate-500">{item.provider}</p>
+      <p className="mt-2 text-sm leading-7 text-slate-600">{item.note}</p>
+    </div>
+  ));
+}
+
 export async function generateStaticParams() {
   const payload = await getStockUniverse();
   const items = payload?.data?.items ?? [];
@@ -93,6 +129,9 @@ export default async function StockDetailPage({ params }) {
   const researchReports = stock.researchReports ?? [];
   const companyProfile = stock.companyProfile ?? {};
   const industryTags = stock.industryTags ?? [];
+  const researchDigest = stock.researchDigest ?? {};
+  const sourceMatrix = stock.sourceMatrix ?? [];
+  const eventTimeline = stock.eventTimeline ?? [];
 
   return (
     <PlatformShell>
@@ -102,7 +141,7 @@ export default async function StockDetailPage({ params }) {
             <SignalBadge tone="neutral">{stock.market}</SignalBadge>
             <SignalBadge tone={stock.changePercent >= 0 ? "positive" : "negative"}>{formatPercent(stock.changePercent)}</SignalBadge>
             <SignalBadge tone={getRiskTone(risk.level)}>{risk.level}</SignalBadge>
-            {industryTags.slice(0, 3).map((tag) => (
+            {industryTags.slice(0, 4).map((tag) => (
               <SignalBadge key={tag} tone="neutral">
                 {tag}
               </SignalBadge>
@@ -141,8 +180,8 @@ export default async function StockDetailPage({ params }) {
               <p className="mt-3 text-sm leading-7 text-slate-500">综合仓位与系统性风险后的当前暴露温度。</p>
             </div>
             <div className="rounded-[24px] border border-slate-900/8 bg-white/84 px-5 py-5">
-              <p className="text-sm text-slate-500">AI 中文摘要</p>
-              <p className="mt-3 text-sm leading-7 text-slate-600">{stock.thesis?.[0] ?? stock.summary}</p>
+              <p className="text-sm text-slate-500">一页式摘要</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">{researchDigest.summary ?? stock.thesis?.[0] ?? stock.summary}</p>
             </div>
           </div>
 
@@ -172,7 +211,7 @@ export default async function StockDetailPage({ params }) {
             <SectionHeading
               kicker="技术面与风险"
               title="量价结构与关键位"
-              description="先确认趋势、量能、支撑与压力位，再决定研究结论是否足够支持交易动作。"
+              description="先确认趋势、量能、支撑与压力位，再决定研究结论是否足够支撑交易动作。"
             />
 
             <div className="mt-5 rounded-[24px] border border-slate-900/8 bg-slate-50/86 p-4">
@@ -201,7 +240,7 @@ export default async function StockDetailPage({ params }) {
             <SectionHeading
               kicker="风险评估"
               title="风险来源拆解"
-              description="不仅给风险等级，也拆开每个风险因子的分值、含义与管理建议。"
+              description="不只给风险等级，也拆开每个风险因子的分值、含义与管理建议。"
             />
             <div className="mt-5 grid gap-4">
               {(risk.factors ?? []).map((item) => (
@@ -247,9 +286,7 @@ export default async function StockDetailPage({ params }) {
                   ))}
                 </div>
               ) : null}
-              {companyProfile.businessScope ? (
-                <p className="mt-4 text-sm leading-7 text-slate-500">{companyProfile.businessScope}</p>
-              ) : null}
+              {companyProfile.businessScope ? <p className="mt-4 text-sm leading-7 text-slate-500">{companyProfile.businessScope}</p> : null}
             </div>
           </div>
 
@@ -262,6 +299,45 @@ export default async function StockDetailPage({ params }) {
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">{renderInfoGrid(valuationHighlights)}</div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">{renderInfoGrid(financialHighlights)}</div>
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="soft-panel rounded-[30px] p-5 sm:p-6">
+            <SectionHeading
+              kicker="研究摘要"
+              title="一页式研究结论"
+              description="把公告、研报、资讯与财务口径压缩成更适合研究复盘的中文结论。"
+            />
+
+            <div className="mt-5 rounded-[24px] border border-slate-900/8 bg-white/84 p-4">
+              <p className="font-medium text-slate-950">当前结论</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">{researchDigest.summary ?? stock.summary}</p>
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium text-slate-950">积极线索</p>
+              <div className="mt-3 grid gap-3">{renderDigestList(researchDigest.positives ?? [], "positive")}</div>
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium text-slate-950">风险关注</p>
+              <div className="mt-3 grid gap-3">{renderDigestList(researchDigest.watchpoints ?? [], "negative")}</div>
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium text-slate-950">下一步研究</p>
+              <div className="mt-3 grid gap-3">{renderDigestList(researchDigest.nextSteps ?? [])}</div>
+            </div>
+          </div>
+
+          <div className="soft-panel rounded-[30px] p-5 sm:p-6">
+            <SectionHeading
+              kicker="数据源"
+              title="研究数据覆盖状态"
+              description="明确当前页面哪些口径已接入、哪些仍在补齐，减少误把模板页当正式结论的风险。"
+            />
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">{renderSourceMatrix(sourceMatrix)}</div>
           </div>
         </section>
 
@@ -290,17 +366,12 @@ export default async function StockDetailPage({ params }) {
 
           <div className="soft-panel rounded-[30px] p-5 sm:p-6">
             <SectionHeading
-              kicker="信息摘录"
-              title="值得继续跟踪"
-              description="把量价、财报与业务变化压缩成更适合研究复盘的中文摘要。"
+              kicker="事件时间线"
+              title="公告、研报与资讯联动"
+              description="把个股最近的正式公告、机构观点与新闻线索放进同一条研究时间线里。"
             />
             <div className="mt-5 grid gap-3">
-              {(stock.news ?? []).map((item) => (
-                <div key={`${item.title}-${item.source}`} className="rounded-[22px] border border-slate-900/8 bg-white/84 px-4 py-4">
-                  <p className="font-medium leading-7 text-slate-950">{item.title}</p>
-                  <p className="mt-2 text-sm text-slate-500">{item.source}</p>
-                </div>
-              ))}
+              {renderResearchCards(eventTimeline.length ? eventTimeline : stock.news ?? [], "当前还没有可展示的事件时间线，后续会继续补强资讯聚合链路。")}
             </div>
 
             <Link href="/risk" className="mt-5 inline-flex text-sm font-medium text-slate-950">

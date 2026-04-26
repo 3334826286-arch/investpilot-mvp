@@ -9,6 +9,13 @@ class Settings(BaseSettings):
     env: str = "development"
     api_prefix: str = "/v1"
     cors_origins: str = "*"
+    advanced_data_mode: str = "hybrid"
+    preferred_fundamentals_provider: str = "AKShare / Eastmoney"
+    preferred_news_provider: str = "Eastmoney News"
+    preferred_research_provider: str = "Eastmoney Research"
+    premium_fundamentals_provider: str = "Daloopa"
+    premium_news_provider: str = "Dow Jones Factiva"
+    external_request_timeout_seconds: int = 15
     cache_ttl_seconds: int = 300
     market_cache_ttl_seconds: int = 180
     stock_cache_ttl_seconds: int = 600

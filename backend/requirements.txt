@@ -5,3 +5,4 @@ akshare
 pandas
 python-dateutil
 pypinyin
+requests

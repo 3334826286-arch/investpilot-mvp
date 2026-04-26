@@ -11,6 +11,11 @@ import pandas as pd
 from app.core.cache import ttl_cache
 from app.core.config import get_settings
 from app.services.lookup_service import search_stock_catalog
+from app.services.research_sources import (
+    build_announcement_cards as build_live_announcement_cards,
+    build_news_cards as build_live_news_cards,
+    build_research_cards as build_live_research_cards,
+)
 from app.services.utils import parse_datetime, to_float
 
 
@@ -249,28 +254,21 @@ def _load_stock_research(symbol: str) -> pd.DataFrame:
 
 
 def _build_news_items(symbol: str, name: str, limit: int) -> list[dict[str, Any]]:
-    frame = _load_stock_news(symbol)
-    if frame.empty:
-        return []
-
+    cards = build_live_news_cards(symbol=symbol, company_name=name, limit=limit)
     items: list[dict[str, Any]] = []
-    for index, row in frame.head(limit).iterrows():
-        title = str(row["新闻标题"])
-        summary = _shorten(str(row["新闻内容"]), 110)
-        published_at = _format_time(row.get("发布时间"))
-        source = str(row.get("文章来源") or "东方财富")
+    for index, item in enumerate(cards):
         items.append(
             {
                 "id": f"news-{symbol}-{index}",
                 "type": "news",
-                "title": title,
-                "summary": summary,
-                "publishedAt": published_at,
-                "source": source,
-                "url": str(row.get("新闻链接") or ""),
-                "tags": [name, symbol, "个股新闻"],
-                "signal": _infer_signal(f"{title} {summary}"),
-                "extractText": _extract_text(title, summary, source, published_at),
+                "title": item["title"],
+                "summary": item["summary"],
+                "publishedAt": item.get("publishedAt", ""),
+                "source": item.get("source", "东方财富"),
+                "url": item.get("url", ""),
+                "tags": list(item.get("tags", [])),
+                "signal": item.get("signal") or _infer_signal(f"{item['title']} {item['summary']}"),
+                "extractText": _extract_text(item["title"], item["summary"], item.get("source", ""), item.get("publishedAt", "")),
             }
         )
 
@@ -278,32 +276,21 @@ def _build_news_items(symbol: str, name: str, limit: int) -> list[dict[str, Any]
 
 
 def _build_announcement_items(symbol: str, name: str, limit: int) -> list[dict[str, Any]]:
-    end_date = datetime.now().strftime("%Y%m%d")
-    begin_date = (datetime.now() - timedelta(days=45)).strftime("%Y%m%d")
-    frame = _load_stock_announcements(symbol=symbol, begin_date=begin_date, end_date=end_date)
-    if frame.empty:
-        return []
-
+    cards = build_live_announcement_cards(symbol=symbol, company_name=name, limit=limit)
     items: list[dict[str, Any]] = []
-    for index, row in frame.head(limit).iterrows():
-        notice_type = str(row.get("公告类型") or "公司公告")
-        title = str(row["公告标题"])
-        published_at = _format_time(row.get("公告日期"), with_time=False)
-        source = "东方财富公告"
-        summary = f"{name}披露 {notice_type}，建议结合公告原文判断是否涉及业绩、融资、股权或风险提示。"
-        signal = "利空" if any(word in notice_type or word in title for word in NEGATIVE_NOTICE_TYPES) else "中性"
+    for index, item in enumerate(cards):
         items.append(
             {
                 "id": f"announcement-{symbol}-{index}",
                 "type": "announcements",
-                "title": title,
-                "summary": summary,
-                "publishedAt": published_at,
-                "source": source,
-                "url": str(row.get("网址") or ""),
-                "tags": [notice_type, symbol],
-                "signal": signal,
-                "extractText": _extract_text(title, summary, source, published_at),
+                "title": item["title"],
+                "summary": item["summary"],
+                "publishedAt": item.get("publishedAt", ""),
+                "source": item.get("source", "东方财富公告"),
+                "url": item.get("url", ""),
+                "tags": [*item.get("tags", []), symbol],
+                "signal": item.get("signal", "中性"),
+                "extractText": _extract_text(item["title"], item["summary"], item.get("source", ""), item.get("publishedAt", "")),
             }
         )
 
@@ -311,32 +298,21 @@ def _build_announcement_items(symbol: str, name: str, limit: int) -> list[dict[s
 
 
 def _build_research_items(symbol: str, name: str, limit: int) -> list[dict[str, Any]]:
-    frame = _load_stock_research(symbol)
-    if frame.empty:
-        return []
-
+    cards = build_live_research_cards(symbol=symbol, company_name=name, limit=limit)
     items: list[dict[str, Any]] = []
-    for index, row in frame.head(limit).iterrows():
-        institution = str(row.get("机构") or "机构研报")
-        rating = str(row.get("东财评级") or "未评级")
-        industry = str(row.get("行业") or "行业跟踪")
-        title = str(row.get("报告名称") or f"{name}研报")
-        published_at = _format_time(row.get("日期"), with_time=False)
-        source = institution
-        summary = f"{institution}给出 {rating} 观点，行业归类为 {industry}，可用于快速把握机构的核心判断与评级倾向。"
-        signal = "利好" if any(word in rating for word in POSITIVE_RATINGS) else "利空" if any(word in rating for word in NEGATIVE_RATINGS) else "中性"
+    for index, item in enumerate(cards):
         items.append(
             {
                 "id": f"research-{symbol}-{index}",
                 "type": "research",
-                "title": title,
-                "summary": summary,
-                "publishedAt": published_at,
-                "source": source,
-                "url": str(row.get("报告PDF链接") or ""),
-                "tags": [rating, industry, symbol],
-                "signal": signal,
-                "extractText": _extract_text(title, summary, source, published_at),
+                "title": item["title"],
+                "summary": item["summary"],
+                "publishedAt": item.get("publishedAt", ""),
+                "source": item.get("source", "机构研报"),
+                "url": item.get("url", ""),
+                "tags": [*item.get("tags", []), symbol],
+                "signal": item.get("signal", "中性"),
+                "extractText": _extract_text(item["title"], item["summary"], item.get("source", ""), item.get("publishedAt", "")),
             }
         )
 
