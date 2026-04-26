@@ -21,6 +21,7 @@ from app.services.utils import (
     previous_year_period,
     safe_get_row_value,
     to_float,
+    to_int,
 )
 
 
@@ -47,6 +48,7 @@ SCREENING_STRATEGIES = [
 
 HOT_UNIVERSE_LIMIT = 14
 FEATURED_CATALOG_SYMBOLS = ["000001", "600519", "601318", "600900", "000858", "002415", "601012"]
+DEFAULT_SYSTEMIC_SCORE = 52
 
 UNIVERSE_SEED_PROFILES = {
     "300750": {
@@ -95,6 +97,177 @@ UNIVERSE_SEED_PROFILES = {
         "reasons": ["估值偏低", "高股息配置", "风险等级较低"],
     },
 }
+
+
+def _build_seed_price_series(price: float, change_percent: float) -> list[dict[str, Any]]:
+    closes = [
+        round(price * 0.955, 2),
+        round(price * 0.964, 2),
+        round(price * 0.972, 2),
+        round(price * 0.981, 2),
+        round(price * 0.988, 2),
+        round(price * 0.994, 2),
+        round(price * (1 - change_percent / 300), 2),
+        round(price, 2),
+    ]
+    dates = ["04-14", "04-15", "04-16", "04-17", "04-18", "04-21", "04-22", "04-23"]
+    volumes = [18, 16, 21, 24, 20, 26, 23, 28]
+    series: list[dict[str, Any]] = []
+    previous = closes[0]
+    for index, close in enumerate(closes):
+        open_price = previous if index else round(close * 0.996, 2)
+        low = round(min(open_price, close) * 0.992, 2)
+        high = round(max(open_price, close) * 1.008, 2)
+        series.append(
+            {
+                "date": dates[index],
+                "open": round(open_price, 2),
+                "close": round(close, 2),
+                "low": low,
+                "high": high,
+                "volume": volumes[index],
+            }
+        )
+        previous = close
+    return series
+
+
+def _seed_factor(score: int, label: str, description: str) -> dict[str, Any]:
+    return {
+        "key": label,
+        "label": label,
+        "score": score,
+        "description": description,
+    }
+
+
+def _build_seed_stock_analysis(symbol: str, position: float = 0.45) -> dict[str, Any] | None:
+    seed = UNIVERSE_SEED_PROFILES.get(symbol)
+    if not seed:
+        return None
+
+    price = to_float(seed["price"])
+    change_percent = float(seed["changePercent"])
+    metrics = dict(seed["metrics"])
+    risk_level = str(seed["riskLevel"])
+    reasons = list(seed["reasons"])
+    market = infer_market(symbol)
+    sector = str(seed["sector"])
+    name = str(seed["name"])
+
+    trend_score = int(metrics["trend"])
+    valuation_score = round(clamp(100 - int(metrics["valuation"]), 18, 88))
+    growth_score = round(clamp(100 - int(metrics["growth"]), 18, 88))
+    sector_score = 62 if any(keyword in sector for keyword in HIGH_BETA_SECTORS) else 34 if any(
+        keyword in sector for keyword in DEFENSIVE_SECTORS
+    ) else 48
+    systemic_score = DEFAULT_SYSTEMIC_SCORE
+    position_score = round(clamp(position * 100, 10, 100))
+
+    factors = [
+        _seed_factor(trend_score, "个股波动风险", "当前使用种子数据兜底，趋势分越高，意味着短线波动管理要求越高。"),
+        _seed_factor(44 if trend_score >= 70 else 36, "高位回撤风险", "趋势修复中的个股仍可能出现回撤，参与时要先写清失效位置。"),
+        _seed_factor(valuation_score, "估值压力风险", "当前个股页使用稳定兜底数据，估值维度先给出保守判断，后续再替换为实时财务口径。"),
+        _seed_factor(growth_score, "业绩兑现风险", "成长预期仍需后续财报和订单数据继续验证。"),
+        _seed_factor(sector_score, "板块轮动风险", "板块强弱切换会直接影响这类标的的持续性和资金承接。"),
+        _seed_factor(systemic_score, "系统性市场风险", "当前系统性风险仍处于中性偏谨慎区间。"),
+        _seed_factor(position_score, "仓位暴露风险", "仓位越重，对单次波动和趋势失效的容忍空间越小。"),
+    ]
+
+    if risk_level == "高风险":
+        management_advice = "当前更适合先控制仓位与交易频率，等趋势与市场承接重新确认后再提高暴露。"
+        coach_hint = "先保证回撤可控，再讨论收益空间。"
+        action_summary = "先控风险，再等确认"
+    elif risk_level == "中风险":
+        management_advice = "更适合分批跟踪与轻仓试错，不建议在单一位置一次性重仓。"
+        coach_hint = "先写清楚入场逻辑、加仓条件和失效位置，再决定是否执行。"
+        action_summary = "分批观察，重视纪律"
+    else:
+        management_advice = "当前风险结构相对温和，可以按计划执行，但仍要保留止损和仓位弹性。"
+        coach_hint = "低风险不等于没有风险，重点是保持执行一致性。"
+        action_summary = "按计划执行，留有弹性"
+
+    total_score = round(sum(item["score"] * RISK_WEIGHTS[key] for item, key in zip(
+        factors,
+        ["volatility", "drawdown", "valuation", "earnings", "sector", "systemic", "position"],
+    )))
+
+    stock = {
+        "symbol": symbol,
+        "name": name,
+        "market": market,
+        "sector": sector,
+        "price": format_number(price),
+        "changePercent": change_percent,
+        "amplitude": format_percent(abs(change_percent) * 1.8 + 0.8),
+        "turnover": format_billions(price * 1.5e8),
+        "summary": "当前页面优先使用稳定的研究兜底数据，先保证结论可读、风险可控，再逐步替换为更完整的实时口径。",
+        "thesis": [
+            reasons[0],
+            reasons[1] if len(reasons) > 1 else "当前更适合把关注点放在趋势持续性和风险收益比上。",
+            "在正式实时数据恢复前，这一页更适合作为研究入口与交易前检查清单，而不是盲目追涨依据。",
+        ],
+        "coachNotes": [
+            management_advice,
+            coach_hint,
+            "如果参与，优先轻仓试错，并在计划内处理加减仓，不要把研究页当成即时喊单页面。",
+        ],
+        "technicalView": {
+            "trend": "趋势结构仍有修复迹象，但更适合等待放量确认，而不是情绪化追高。",
+            "volume": "成交量能维持活跃更重要，量价失配时要优先降低预期。",
+            "support": format_number(price * 0.96),
+            "resistance": format_number(price * 1.04),
+        },
+        "fundamentals": [
+            {"key": "valuation", "label": "估值状态", "value": "中性"},
+            {"key": "growth", "label": "成长状态", "value": "跟踪中"},
+            {"key": "trend", "label": "趋势评分", "value": str(metrics["trend"])},
+            {"key": "risk", "label": "风险标签", "value": risk_level},
+        ],
+        "catalysts": [
+            reasons[0],
+            "后续财报、公告与行业景气验证，会决定趋势能否从交易逻辑走向更稳的配置逻辑。",
+            "市场系统性风险若下降，这类标的的容错率会明显提升。",
+        ],
+        "news": [
+            {"title": f"{name} 当前处于平台研究池，短线关注点仍在趋势确认和承接强度。", "source": "研究工作台"},
+            {"title": "正式实时公告与新闻聚合恢复后，这里会优先展示最新公告、机构观点和关键风险提示。", "source": "系统提示"},
+        ],
+        "radarMetrics": [
+            {"name": "趋势", "value": metrics["trend"]},
+            {"name": "成长", "value": metrics["growth"]},
+            {"name": "估值", "value": metrics["valuation"]},
+            {"name": "资金", "value": round(clamp(metrics["trend"] * 0.82, 18, 88))},
+            {"name": "风控", "value": metrics["risk"]},
+        ],
+        "priceSeries": _build_seed_price_series(price, change_percent),
+        "riskProfile": {
+            "volatility": trend_score,
+            "drawdown": 44 if trend_score >= 70 else 36,
+            "valuation": valuation_score,
+            "earnings": growth_score,
+            "sector": sector_score,
+        },
+        "riskNotes": {
+            "volatility": "当前以稳定兜底数据为主，波动管理仍应放在第一位。",
+            "drawdown": "修复阶段的个股更需要尊重回撤控制，而不是默认趋势会线性延续。",
+            "valuation": "估值并非唯一决策依据，但会决定你能承受多大的业绩偏差。",
+            "earnings": "后续财报或经营数据若不及预期，价格对风险的反应会更快。",
+            "sector": "板块轮动加快时，行业强弱往往比个股故事更先影响股价表现。",
+        },
+        "selectionReasons": reasons,
+        "selectionSummary": "；".join(reasons[:3]),
+    }
+    risk = {
+        "totalScore": total_score,
+        "level": risk_level,
+        "exposure": round(clamp(total_score * 0.62 + position * 30, 12, 95)),
+        "factors": factors,
+        "managementAdvice": management_advice,
+        "coachHint": coach_hint,
+        "actionSummary": action_summary,
+    }
+    return {"stock": stock, "risk": risk}
 
 
 def _load_stock_history(symbol: str) -> pd.DataFrame:
@@ -342,10 +515,14 @@ def _build_selection_reasons(
 
 def _build_stock_payload(symbol: str, position: float = 0.45, market_context: dict[str, Any] | None = None) -> dict[str, Any] | None:
     history = _load_stock_history(symbol)
-    info_frame = _load_stock_info(symbol)
     financial_frame = _load_financial_abstract(symbol)
-    if history.empty or info_frame.empty or financial_frame.empty:
+    if history.empty or financial_frame.empty:
         return None
+
+    try:
+        info_frame = _load_stock_info(symbol)
+    except Exception:
+        info_frame = pd.DataFrame()
 
     history = history.tail(60).reset_index(drop=True)
     latest = history.iloc[-1]
@@ -381,12 +558,14 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
     revenue_growth = growth_rate(revenue, previous_revenue)
     profit_growth = growth_rate(net_profit, previous_profit)
 
-    industry = str(_info_value(info_frame, "行业") or "行业待补充")
-    company_name = str(_info_value(info_frame, "股票简称") or symbol)
+    catalog_match = next((item for item in load_stock_catalog() if item["symbol"] == symbol), None)
+    seed = UNIVERSE_SEED_PROFILES.get(symbol, {})
+    industry = str(_info_value(info_frame, "行业") or seed.get("sector") or "行业待补充")
+    company_name = str(_info_value(info_frame, "股票简称") or seed.get("name") or (catalog_match["name"] if catalog_match else symbol))
     market_cap = to_float(_info_value(info_frame, "总市值"))
     market = infer_market(symbol)
-    market_context = market_context or build_market_overview()
-    systemic_score = int(market_context["systemicRiskScore"])
+    market_context = market_context or {"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE}
+    systemic_score = int(market_context.get("systemicRiskScore", DEFAULT_SYSTEMIC_SCORE))
 
     risk_profile, risk_notes, risk = _calculate_risk_profile(
         industry=industry,
@@ -623,8 +802,15 @@ def _build_hot_rank_candidate(symbol: str, name: str, price: float, change_perce
 
 
 def build_stock_analysis(symbol: str, position: float = 0.45) -> dict[str, Any] | None:
-    market_context = build_market_overview()
-    payload = _build_stock_payload(symbol=symbol, position=position, market_context=market_context)
+    seed_payload = _build_seed_stock_analysis(symbol=symbol, position=position)
+    if seed_payload is not None:
+        return seed_payload
+
+    payload = _build_stock_payload(
+        symbol=symbol,
+        position=position,
+        market_context={"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE},
+    )
     if payload is None:
         return None
     return {"stock": payload["stock"], "risk": payload["risk"]}
