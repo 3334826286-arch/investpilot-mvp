@@ -6,6 +6,7 @@ from typing import Any
 
 import akshare as ak
 import pandas as pd
+import requests
 
 from app.core.cache import ttl_cache
 from app.core.config import get_settings
@@ -419,6 +420,81 @@ def _load_financial_abstract(symbol: str) -> pd.DataFrame:
     )
 
 
+def _symbol_with_market_suffix(symbol: str) -> str:
+    return f"{symbol}.SH" if symbol.startswith(("600", "601", "603", "605", "688", "900")) else f"{symbol}.SZ"
+
+
+def _load_financial_indicator(symbol: str) -> pd.DataFrame:
+    settings = get_settings()
+    return ttl_cache.get_or_set(
+        f"stock:financial_indicator:{symbol}",
+        settings.stock_cache_ttl_seconds,
+        lambda: ak.stock_financial_analysis_indicator_em(symbol=_symbol_with_market_suffix(symbol), indicator="按报告期"),
+    )
+
+
+def _load_business_profile(symbol: str) -> pd.DataFrame:
+    settings = get_settings()
+    return ttl_cache.get_or_set(
+        f"stock:business_profile:{symbol}",
+        settings.stock_cache_ttl_seconds,
+        lambda: ak.stock_zyjs_ths(symbol=symbol),
+    )
+
+
+def _load_stock_research(symbol: str) -> pd.DataFrame:
+    settings = get_settings()
+    return ttl_cache.get_or_set(
+        f"stock:research:{symbol}",
+        settings.stock_cache_ttl_seconds,
+        lambda: ak.stock_research_report_em(symbol=symbol),
+    )
+
+
+def _load_stock_announcements(symbol: str, begin_date: str, end_date: str) -> pd.DataFrame:
+    settings = get_settings()
+
+    def builder() -> pd.DataFrame:
+        url = "https://np-anotice-stock.eastmoney.com/api/security/ann"
+        params = {
+            "sr": "-1",
+            "page_size": "20",
+            "page_index": "1",
+            "ann_type": "A",
+            "client_source": "web",
+            "f_node": "0",
+            "s_node": "0",
+            "stock_list": symbol,
+            "begin_time": begin_date,
+            "end_time": end_date,
+        }
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("data", {}).get("list", [])
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            code_info = next((item for item in row.get("codes", []) if str(item.get("ann_type", "")).startswith("A")), {})
+            column_info = row.get("columns", [{}])[0] if row.get("columns") else {}
+            items.append(
+                {
+                    "代码": str(code_info.get("stock_code") or symbol).zfill(6),
+                    "名称": str(code_info.get("short_name") or ""),
+                    "公告标题": str(row.get("title") or ""),
+                    "公告类型": str(column_info.get("column_name") or "公司公告"),
+                    "公告日期": pd.to_datetime(row.get("notice_date"), errors="coerce"),
+                    "网址": f"https://data.eastmoney.com/notices/detail/{str(code_info.get('stock_code') or symbol).zfill(6)}/{row.get('art_code')}.html",
+                }
+            )
+        return pd.DataFrame(items)
+
+    return ttl_cache.get_or_set(
+        f"stock:announcements:{symbol}:{begin_date}:{end_date}",
+        settings.search_cache_ttl_seconds,
+        builder,
+    )
+
+
 def _load_hot_rank_snapshot() -> pd.DataFrame:
     settings = get_settings()
     return ttl_cache.get_or_set(
@@ -439,6 +515,95 @@ def _info_value(frame: pd.DataFrame, item: str) -> Any:
     if matched.empty:
         return None
     return matched.iloc[0]["value"]
+
+
+def _format_report_period(period: str | None) -> str:
+    if not period or not str(period).isdigit() or len(str(period)) != 8:
+        return period or "--"
+    period = str(period)
+    return f"{period[:4]}-{period[4:6]}-{period[6:]}"
+
+
+def _latest_indicator_row(frame: pd.DataFrame) -> pd.Series | None:
+    if frame.empty or "REPORT_DATE" not in frame.columns:
+        return None
+    working = frame.copy()
+    working["REPORT_DATE"] = pd.to_datetime(working["REPORT_DATE"], errors="coerce")
+    working = working.loc[working["REPORT_DATE"].notna()]
+    if working.empty:
+        return None
+    return working.sort_values("REPORT_DATE", ascending=False).iloc[0]
+
+
+def _format_market_cap(value: float) -> str:
+    return format_billions(value) if value > 0 else "待补充"
+
+
+def _build_announcement_cards(symbol: str, company_name: str, limit: int = 4) -> list[dict[str, Any]]:
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    begin_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+    try:
+        frame = _load_stock_announcements(symbol=symbol, begin_date=begin_date, end_date=end_date)
+    except Exception:
+        return []
+
+    if frame.empty:
+        return []
+
+    items: list[dict[str, Any]] = []
+    for _, row in frame.head(limit).iterrows():
+        notice_type = str(row.get("公告类型") or "公司公告")
+        title = str(row.get("公告标题") or f"{company_name} 公告")
+        published_at = pd.to_datetime(row.get("公告日期"), errors="coerce")
+        date_label = published_at.strftime("%Y-%m-%d") if pd.notna(published_at) else ""
+        items.append(
+            {
+                "title": title,
+                "summary": f"公告类型为 {notice_type}，建议优先查看原文，确认是否涉及业绩、融资、股权变动或风险提示。",
+                "source": "东方财富公告",
+                "publishedAt": date_label,
+                "url": str(row.get("网址") or ""),
+                "tags": [notice_type],
+            }
+        )
+    return items
+
+
+def _build_research_cards(symbol: str, company_name: str, limit: int = 4) -> list[dict[str, Any]]:
+    try:
+        frame = _load_stock_research(symbol)
+    except Exception:
+        return []
+
+    if frame.empty:
+        return []
+
+    items: list[dict[str, Any]] = []
+    for _, row in frame.head(limit).iterrows():
+        institution = str(row.get("机构") or "机构研报")
+        rating = str(row.get("东财评级") or "未评级")
+        industry = str(row.get("行业") or "")
+        title = str(row.get("报告名称") or f"{company_name} 研报")
+        published_at = pd.to_datetime(row.get("日期"), errors="coerce")
+        date_label = published_at.strftime("%Y-%m-%d") if pd.notna(published_at) else ""
+        summary = f"{institution} 给出 {rating} 观点"
+        if industry:
+            summary += f"，行业分类为 {industry}"
+        if pd.notna(row.get("2025-盈利预测-市盈率")):
+            summary += f"，2025 预测市盈率约 {to_float(row.get('2025-盈利预测-市盈率')):.1f} 倍。"
+        else:
+            summary += "。"
+        items.append(
+            {
+                "title": title,
+                "summary": summary,
+                "source": institution,
+                "publishedAt": date_label,
+                "url": str(row.get("报告PDF链接") or ""),
+                "tags": [rating, industry] if industry else [rating],
+            }
+        )
+    return items
 
 
 def _symbol_with_exchange(symbol: str) -> str:
@@ -673,6 +838,11 @@ def _build_quote_driven_stock_payload(
     if history.empty:
         return None
 
+    try:
+        profile_frame = _load_business_profile(symbol)
+    except Exception:
+        profile_frame = pd.DataFrame()
+
     history = history.tail(60).reset_index(drop=True)
     latest = history.iloc[-1]
     latest_close = to_float(latest["close"])
@@ -697,7 +867,13 @@ def _build_quote_driven_stock_payload(
     seed = UNIVERSE_SEED_PROFILES.get(symbol, {})
     industry = str(_info_value(info_frame, "行业") or seed.get("sector") or "行业待补充")
     company_name = str(_info_value(info_frame, "股票简称") or seed.get("name") or (catalog_match["name"] if catalog_match else symbol))
+    profile_row = profile_frame.iloc[0] if not profile_frame.empty else None
+    main_business = str(profile_row.get("主营业务") or "") if profile_row is not None else ""
+    product_types = [item.strip() for item in str(profile_row.get("产品类型") or "").split("、") if item.strip()] if profile_row is not None else []
+    announcement_cards = _build_announcement_cards(symbol=symbol, company_name=company_name, limit=3)
+    research_cards = _build_research_cards(symbol=symbol, company_name=company_name, limit=3)
     market = infer_market(symbol)
+    market_tags = [tag for tag in [industry, market, *product_types[:2]] if tag and tag != "行业待补充"]
     market_context = market_context or {"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE}
     systemic_score = int(market_context.get("systemicRiskScore", DEFAULT_SYSTEMIC_SCORE))
 
@@ -755,6 +931,7 @@ def _build_quote_driven_stock_payload(
             "财务、估值与公告口径仍在继续补充，因此结论会先偏中性谨慎，不会在证据不完整时给出过强表态。",
             "更适合先把它当研究入口和风控页使用，再逐步叠加更完整的财务与事件信息。",
         ],
+        "industryTags": market_tags,
         "coachNotes": [
             risk["managementAdvice"],
             "如果参与，优先围绕支撑位、压力位和趋势失效位做计划，而不是只看一日涨跌。",
@@ -772,6 +949,28 @@ def _build_quote_driven_stock_payload(
             {"key": "ma60", "label": "60 日均线", "value": format_number(ma60)},
             {"key": "volume_ratio", "label": "量比(20日)", "value": f"{volume_ratio:.2f}x"},
         ],
+        "basicInfo": [
+            {"key": "market", "label": "上市板块", "value": market},
+            {"key": "industry", "label": "行业标签", "value": industry},
+            {"key": "product", "label": "产品类型", "value": product_types[0] if product_types else "待补充"},
+            {"key": "coverage", "label": "研究覆盖", "value": "真实行情已接入"},
+        ],
+        "valuationHighlights": [
+            {"key": "close", "label": "最新收盘价", "value": format_number(latest_close), "note": "来自最近交易日行情"},
+            {"key": "volume_ratio", "label": "量比(20日)", "value": f"{volume_ratio:.2f}x", "note": "用于观察量能是否放大"},
+            {"key": "volatility", "label": "年化波动率", "value": format_percent(volatility), "note": "用于识别短线波动强弱"},
+            {"key": "drawdown", "label": "阶段最大回撤", "value": format_percent(max_drawdown), "note": "衡量趋势修复中的回撤压力"},
+        ],
+        "financialHighlights": [
+            {"key": "quote_status", "label": "财报口径", "value": "继续补齐", "note": "当前先用真实行情、趋势与风险结构做研究入口"},
+            {"key": "support", "label": "支撑位", "value": f"{support:.2f}", "note": "基于近 10 个交易日低点估算"},
+            {"key": "resistance", "label": "压力位", "value": f"{resistance:.2f}", "note": "基于近 10 个交易日高点估算"},
+        ],
+        "companyProfile": {
+            "mainBusiness": main_business or "主营业务待补充",
+            "productTypes": product_types[:4],
+            "businessScope": str(profile_row.get("经营范围") or "")[:220] if profile_row is not None else "",
+        },
         "catalysts": [
             "若成交量继续放大且价格稳在中期均线之上，趋势跟随资金更容易回流。",
             f"{industry} 板块的热度切换会直接影响这类标的的承接与容错率。",
@@ -809,6 +1008,8 @@ def _build_quote_driven_stock_payload(
             "valuation": "当前先用价格结构替代部分估值判断，完整估值口径会在财务与市值数据补齐后加强。",
             "earnings": "业绩与财务字段仍在补充中，当前更适合先把页面用于趋势与风控观察。",
         },
+        "announcements": announcement_cards,
+        "researchReports": research_cards,
         "selectionReasons": reasons,
         "selectionSummary": "；".join(reasons[:3]),
     }
@@ -862,13 +1063,46 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
     net_assets = safe_get_row_value(financial_frame, "股东权益合计(净资产)", latest_period) if latest_period else 0.0
     revenue_growth = growth_rate(revenue, previous_revenue)
     profit_growth = growth_rate(net_profit, previous_profit)
+    latest_period_label = _format_report_period(latest_period)
+
+    try:
+        indicator_frame = _load_financial_indicator(symbol)
+    except Exception:
+        indicator_frame = pd.DataFrame()
+    indicator_row = _latest_indicator_row(indicator_frame)
+    bps = to_float(indicator_row.get("BPS")) if indicator_row is not None else 0.0
+    eps = to_float(indicator_row.get("EPSJB")) if indicator_row is not None else 0.0
+    roe_indicator = to_float(indicator_row.get("ROE_DILUTED")) if indicator_row is not None else 0.0
+    gross_margin_indicator = to_float(indicator_row.get("GROSS_PROFIT_RATIO")) if indicator_row is not None else 0.0
+
+    try:
+        profile_frame = _load_business_profile(symbol)
+    except Exception:
+        profile_frame = pd.DataFrame()
+    profile_row = profile_frame.iloc[0] if not profile_frame.empty else None
+    main_business = str(profile_row.get("主营业务") or "") if profile_row is not None else ""
+    product_types = [item.strip() for item in str(profile_row.get("产品类型") or "").split("、") if item.strip()] if profile_row is not None else []
+    product_names = [item.strip() for item in str(profile_row.get("产品名称") or "").split("、") if item.strip()] if profile_row is not None else []
+
+    try:
+        research_frame = _load_stock_research(symbol)
+    except Exception:
+        research_frame = pd.DataFrame()
+    research_row = research_frame.iloc[0] if not research_frame.empty else None
+    research_industry = str(research_row.get("行业") or "") if research_row is not None else ""
 
     catalog_match = next((item for item in load_stock_catalog() if item["symbol"] == symbol), None)
     seed = UNIVERSE_SEED_PROFILES.get(symbol, {})
-    industry = str(_info_value(info_frame, "行业") or seed.get("sector") or "行业待补充")
+    industry = str(_info_value(info_frame, "行业") or research_industry or seed.get("sector") or "行业待补充")
     company_name = str(_info_value(info_frame, "股票简称") or seed.get("name") or (catalog_match["name"] if catalog_match else symbol))
+    announcement_cards = _build_announcement_cards(symbol=symbol, company_name=company_name, limit=4)
+    research_cards = _build_research_cards(symbol=symbol, company_name=company_name, limit=4)
     market_cap = to_float(_info_value(info_frame, "总市值"))
+    estimated_shares = net_assets / bps if bps > 0 and net_assets > 0 else 0.0
+    if market_cap <= 0 and estimated_shares > 0:
+        market_cap = latest_close * estimated_shares
     market = infer_market(symbol)
+    market_tags = [tag for tag in [industry, market, *product_types[:2], *product_names[:2]] if tag and tag != "行业待补充"]
     market_context = market_context or {"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE}
     systemic_score = int(market_context.get("systemicRiskScore", DEFAULT_SYSTEMIC_SCORE))
 
@@ -884,8 +1118,9 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
         systemic_score=systemic_score,
     )
 
-    price_to_book = market_cap / net_assets if net_assets > 0 else 0.0
+    price_to_book = latest_close / bps if bps > 0 else (market_cap / net_assets if net_assets > 0 else 0.0)
     price_to_book_display = f"{price_to_book:.1f}x" if price_to_book > 0 else "待补充"
+    pe_display = f"{latest_close / eps:.1f}x" if eps > 0 else "待补充"
     screening = _build_screening_metrics(
         latest_close=latest_close,
         ma20=ma20,
@@ -937,6 +1172,7 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
             ),
             "系统性市场环境仍会影响个股表现，择时与仓位管理的重要性不低于个股逻辑本身。",
         ],
+        "industryTags": market_tags,
         "coachNotes": [
             risk["managementAdvice"],
             "如果参与，应优先把止损位置定义在趋势失效位，而不是情绪波动位。",
@@ -950,12 +1186,35 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
         },
         "fundamentals": [
             {"key": "pb", "label": "市净率(PB)", "value": price_to_book_display},
-            {"key": "roe", "label": "ROE", "value": format_percent(roe)},
+            {"key": "roe", "label": "ROE", "value": format_percent(roe_indicator or roe)},
             {"key": "revenue_growth", "label": "营收同比", "value": format_percent(revenue_growth)},
-            {"key": "gross_margin", "label": "销售毛利率", "value": format_percent(gross_margin)},
+            {"key": "gross_margin", "label": "销售毛利率", "value": format_percent(gross_margin_indicator or gross_margin)},
         ],
+        "basicInfo": [
+            {"key": "market", "label": "上市板块", "value": market},
+            {"key": "industry", "label": "行业标签", "value": industry},
+            {"key": "market_cap", "label": "总市值", "value": _format_market_cap(market_cap)},
+            {"key": "net_assets", "label": "归母净资产", "value": format_billions(net_assets) if net_assets > 0 else "待补充"},
+        ],
+        "valuationHighlights": [
+            {"key": "pb", "label": "市净率(PB)", "value": price_to_book_display, "note": "优先使用每股净资产口径估算"},
+            {"key": "pe", "label": "每股收益对应 PE", "value": pe_display, "note": "基于最新股价与报告期 EPS 估算"},
+            {"key": "bps", "label": "每股净资产", "value": format_number(bps) if bps > 0 else "待补充", "note": "来自东方财富财务分析"},
+            {"key": "market_cap", "label": "总市值", "value": _format_market_cap(market_cap), "note": "优先用市值口径，缺失时按净资产与 BPS 估算"},
+        ],
+        "financialHighlights": [
+            {"key": "report_period", "label": "最新报告期", "value": latest_period_label, "note": "当前财报分析默认围绕最近报告期展开"},
+            {"key": "revenue", "label": "营业总收入", "value": format_billions(revenue) if revenue else "待补充", "note": f"同比 {revenue_growth:.1f}%"},
+            {"key": "profit", "label": "归母净利润", "value": format_billions(net_profit) if net_profit else "待补充", "note": f"同比 {profit_growth:.1f}%"},
+            {"key": "cashflow", "label": "经营现金流净额", "value": format_billions(cashflow) if cashflow else "待补充", "note": f"资产负债率 {debt_ratio:.1f}%"},
+        ],
+        "companyProfile": {
+            "mainBusiness": main_business or "主营业务待补充",
+            "productTypes": product_types[:4],
+            "businessScope": str(profile_row.get("经营范围") or "")[:280] if profile_row is not None else "",
+        },
         "catalysts": [
-            f"{latest_period} 财务数据兑现情况仍是最重要的基本面催化。",
+            f"{latest_period_label} 财务数据兑现情况仍是最重要的基本面催化。",
             "若量能继续放大且价格维持在中期均线之上，趋势跟随资金更容易回流。",
             f"{industry} 板块强弱切换会直接影响个股溢价与容错率。",
         ],
@@ -987,6 +1246,8 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
         ],
         "riskProfile": risk_profile,
         "riskNotes": risk_notes,
+        "announcements": announcement_cards,
+        "researchReports": research_cards,
         "selectionReasons": reasons,
         "selectionSummary": selection_summary,
     }
