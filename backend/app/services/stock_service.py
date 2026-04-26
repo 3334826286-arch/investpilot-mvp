@@ -270,6 +270,127 @@ def _build_seed_stock_analysis(symbol: str, position: float = 0.45) -> dict[str,
     return {"stock": stock, "risk": risk}
 
 
+def _build_catalog_stock_analysis(symbol: str, position: float = 0.45) -> dict[str, Any] | None:
+    catalog_match = next((item for item in load_stock_catalog() if item["symbol"] == symbol), None)
+    if catalog_match is None:
+        return None
+
+    market = infer_market(symbol)
+    sector = "行业待补充"
+    trend_score = 48
+    drawdown_score = 42
+    valuation_score = 45
+    earnings_score = 40
+    sector_score = 46
+    systemic_score = DEFAULT_SYSTEMIC_SCORE
+    position_score = round(clamp(position * 100, 10, 100))
+    total_score = round(
+        trend_score * RISK_WEIGHTS["volatility"]
+        + drawdown_score * RISK_WEIGHTS["drawdown"]
+        + valuation_score * RISK_WEIGHTS["valuation"]
+        + earnings_score * RISK_WEIGHTS["earnings"]
+        + sector_score * RISK_WEIGHTS["sector"]
+        + systemic_score * RISK_WEIGHTS["systemic"]
+        + position_score * RISK_WEIGHTS["position"]
+    )
+
+    level = "中风险" if total_score >= 43 else "低风险"
+    management_advice = "当前标的已纳入全市场目录，可先作为研究入口使用；若要执行交易，建议等待实时财务与行情口径补齐后再提高信心。"
+    coach_hint = "先看结构和风险收益比，再决定是否继续深挖，不要因为能搜到就直接下判断。"
+    action_summary = "先研究，再决定参与"
+
+    stock = {
+        "symbol": symbol,
+        "name": catalog_match["name"],
+        "market": market,
+        "sector": sector,
+        "price": "--",
+        "changePercent": 0.0,
+        "amplitude": "--",
+        "turnover": "--",
+        "summary": "当前标的已支持从全市场目录进入。若实时行情与财务数据暂未补齐，页面会先给出目录级研究入口与风险提示。",
+        "thesis": [
+            "这只股票已经纳入全市场 A 股检索底座，可以直接进入详情页和风险工作台。",
+            "当前页面先提供目录级研究结论，后续会继续补上更完整的实时行情、财务与公告口径。",
+            "在实时口径未完全恢复前，更适合把这里当成研究入口，而不是即时交易依据。",
+        ],
+        "coachNotes": [
+            management_advice,
+            coach_hint,
+            "如果准备深入研究，下一步优先看公告、财报与行业景气，而不是先放大短线涨跌。",
+        ],
+        "technicalView": {
+            "trend": "当前为目录级分析入口，趋势结论待实时行情补齐后更新。",
+            "volume": "成交量与资金承接口径待接入更完整的实时数据。",
+            "support": "--",
+            "resistance": "--",
+        },
+        "fundamentals": [
+            {"key": "coverage", "label": "覆盖状态", "value": "全市场目录"},
+            {"key": "quote", "label": "行情口径", "value": "补充中"},
+            {"key": "financial", "label": "财务口径", "value": "补充中"},
+            {"key": "risk", "label": "风险等级", "value": level},
+        ],
+        "catalysts": [
+            "公告、财报与行业景气数据补齐后，个股结论会显著更完整。",
+            "若该标的进入热点板块或公告窗口，优先关注承接强度与风险收益比。",
+            "目录级覆盖解决的是“能找到”，后续实时数据解决的是“能判断”。",
+        ],
+        "news": [
+            {"title": "当前展示为全市场目录级入口，便于直接进入研究流程。", "source": "系统提示"},
+            {"title": "后续将接入公告、新闻与机构观点聚合，用于补全文档提炼与个股结论。", "source": "产品规划"},
+        ],
+        "radarMetrics": [
+            {"name": "趋势", "value": 48},
+            {"name": "成长", "value": 52},
+            {"name": "估值", "value": 50},
+            {"name": "资金", "value": 40},
+            {"name": "风控", "value": 58},
+        ],
+        "priceSeries": _build_seed_price_series(20, 0),
+        "riskProfile": {
+            "volatility": trend_score,
+            "drawdown": drawdown_score,
+            "valuation": valuation_score,
+            "earnings": earnings_score,
+            "sector": sector_score,
+        },
+        "riskNotes": {
+            "volatility": "当前仍是目录级研究入口，趋势和波动管理结论会在实时行情恢复后补强。",
+            "drawdown": "回撤结构需要结合真实价格序列判断，当前先按中性口径提示。",
+            "valuation": "估值维度尚未接入完整财务口径，先给出保守中性判断。",
+            "earnings": "业绩兑现能力待财务摘要与公告接入后更新。",
+            "sector": "行业标签尚未细化，后续会继续补充板块与景气信息。",
+        },
+        "selectionReasons": [
+            "已纳入全市场 A 股目录底座",
+            "支持从风险工作台和搜索工作台直接进入",
+            "后续可继续补充公告、财报与实时行情口径",
+        ],
+        "selectionSummary": "已纳入全市场目录，可直接进入研究流程。",
+    }
+
+    risk = {
+        "totalScore": total_score,
+        "level": level,
+        "exposure": round(clamp(total_score * 0.62 + position * 30, 12, 95)),
+        "factors": [
+            {"key": "volatility", "label": "个股波动风险", "score": trend_score, "description": "当前为目录级分析入口，波动判断先按中性偏谨慎处理。"},
+            {"key": "drawdown", "label": "高位回撤风险", "score": drawdown_score, "description": "回撤结构待真实价格序列补齐后进一步细化。"},
+            {"key": "valuation", "label": "估值压力风险", "score": valuation_score, "description": "财务估值口径待补齐前，先不做过于激进的低风险结论。"},
+            {"key": "earnings", "label": "业绩兑现风险", "score": earnings_score, "description": "公告与财务摘要补齐后，这一维度会更有参考价值。"},
+            {"key": "sector", "label": "板块轮动风险", "score": sector_score, "description": "行业与板块景气数据后续会继续增强。"},
+            {"key": "systemic", "label": "系统性市场风险", "score": systemic_score, "description": "系统性风险会直接影响个股容错率。"},
+            {"key": "position", "label": "仓位暴露风险", "score": position_score, "description": "仓位越高，目录级信息的决策容错率越低。"},
+        ],
+        "managementAdvice": management_advice,
+        "coachHint": coach_hint,
+        "actionSummary": action_summary,
+    }
+
+    return {"stock": stock, "risk": risk}
+
+
 def _load_stock_history(symbol: str) -> pd.DataFrame:
     settings = get_settings()
     return ttl_cache.get_or_set(
@@ -307,6 +428,12 @@ def _load_hot_rank_snapshot() -> pd.DataFrame:
 
 
 def _info_value(frame: pd.DataFrame, item: str) -> Any:
+    if frame.empty:
+        return None
+
+    if "item" not in frame.columns or "value" not in frame.columns:
+        return None
+
     matched = frame.loc[frame["item"] == item]
     if matched.empty:
         return None
@@ -812,7 +939,7 @@ def build_stock_analysis(symbol: str, position: float = 0.45) -> dict[str, Any] 
         market_context={"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE},
     )
     if payload is None:
-        return None
+        return _build_catalog_stock_analysis(symbol=symbol, position=position)
     return {"stock": payload["stock"], "risk": payload["risk"]}
 
 

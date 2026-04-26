@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { EChartPanel } from "@/components/charts/echart-panel";
 import { DataStatusNote } from "@/components/data-status-note";
 import { SignalBadge } from "@/components/signal-badge";
@@ -9,14 +9,68 @@ import { buildRadarOption } from "@/lib/chart-options";
 import { formatPlainPercent, getRiskTone } from "@/lib/format";
 
 export function RiskWorkbench({ stocks, initialPayload, initialPosition = 45 }) {
-  const [symbol, setSymbol] = useState(initialPayload?.data?.stock?.symbol ?? stocks[0]?.symbol ?? "");
+  const initialStock = initialPayload?.data?.stock ?? null;
+  const [symbol, setSymbol] = useState(initialStock?.symbol ?? stocks[0]?.symbol ?? "");
+  const [query, setQuery] = useState(initialStock ? `${initialStock.name} ${initialStock.symbol}` : "");
+  const [options, setOptions] = useState(stocks);
   const [position, setPosition] = useState(initialPosition);
   const [payload, setPayload] = useState(initialPayload);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("风险工作台已就绪。");
   const initialLoadSkippedRef = useRef(false);
+  const searchLoadSkippedRef = useRef(false);
   const deferredSymbol = useDeferredValue(symbol);
+  const deferredQuery = useDeferredValue(query);
   const deferredPosition = useDeferredValue(position);
+
+  const currentOption = useMemo(
+    () => options.find((item) => item.symbol === symbol) ?? stocks.find((item) => item.symbol === symbol) ?? null,
+    [options, stocks, symbol]
+  );
+
+  useEffect(() => {
+    if (!searchLoadSkippedRef.current) {
+      searchLoadSkippedRef.current = true;
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const keyword = deferredQuery.trim();
+
+    if (!keyword) {
+      setOptions(stocks);
+      return () => controller.abort();
+    }
+
+    fetch(`/api/v1/stocks/universe?q=${encodeURIComponent(keyword)}&limit=20`, {
+      signal: controller.signal,
+      cache: "no-store"
+    })
+      .then(async (response) => {
+        const nextPayload = await response.json();
+        if (!response.ok) {
+          throw new Error(nextPayload?.meta?.errorMessage || "股票搜索接口返回异常。");
+        }
+
+        startTransition(() => {
+          setOptions(nextPayload?.data?.items ?? []);
+        });
+      })
+      .catch((nextError) => {
+        if (nextError.name === "AbortError") {
+          return;
+        }
+
+        const fallbackKeyword = keyword.toLowerCase();
+        setOptions(
+          stocks.filter((item) =>
+            [item.symbol, item.name, item.sector, item.market].join(" ").toLowerCase().includes(fallbackKeyword)
+          )
+        );
+      });
+
+    return () => controller.abort();
+  }, [deferredQuery, stocks]);
 
   useEffect(() => {
     if (!initialLoadSkippedRef.current) {
@@ -40,9 +94,12 @@ export function RiskWorkbench({ stocks, initialPayload, initialPosition = 45 }) 
 
         startTransition(() => {
           setPayload(nextPayload);
+          if (nextPayload?.data?.stock) {
+            setQuery(`${nextPayload.data.stock.name} ${nextPayload.data.stock.symbol}`);
+          }
           setStatus(
             nextPayload?.meta?.fallback
-              ? "真实接口暂未连通，当前展示本地兜底结果。"
+              ? "真实接口暂时不可用，当前展示的是兜底研究结果。"
               : "风险评估已按最新参数更新。"
           );
         });
@@ -84,19 +141,47 @@ export function RiskWorkbench({ stocks, initialPayload, initialPosition = 45 }) 
 
         <div className="mt-6 grid gap-4">
           <label className="grid gap-2 text-sm text-slate-500">
+            搜索 A 股
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="输入代码、简称或拼音缩写，例如 300750、宁德时代、ndsd"
+              className="h-12 rounded-2xl border border-slate-900/10 bg-white px-4 outline-none transition focus:border-slate-900/30 focus:ring-4 focus:ring-slate-900/5"
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm text-slate-500">
             选择个股
             <select
               value={symbol}
-              onChange={(event) => setSymbol(event.target.value)}
+              onChange={(event) => {
+                const nextSymbol = event.target.value;
+                const matched = options.find((item) => item.symbol === nextSymbol) ?? stocks.find((item) => item.symbol === nextSymbol);
+                setSymbol(nextSymbol);
+                if (matched) {
+                  setQuery(`${matched.name} ${matched.symbol}`);
+                }
+              }}
               className="h-12 rounded-2xl border border-slate-900/10 bg-white px-4 outline-none transition focus:border-slate-900/30 focus:ring-4 focus:ring-slate-900/5"
             >
-              {stocks.map((item) => (
+              {options.map((item) => (
                 <option key={item.symbol} value={item.symbol}>
                   {item.name} {item.symbol}
                 </option>
               ))}
             </select>
           </label>
+
+          <div className="rounded-[24px] border border-slate-900/8 bg-white/86 p-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">
+              {deferredQuery.trim()
+                ? `当前展示全市场匹配结果，共 ${options.length} 条候选`
+                : "当前展示默认关注池，输入代码、简称或拼音缩写后会切换到全市场检索"}
+            </p>
+            <p className="mt-2 leading-7">
+              这里不再只显示少数演示股票。A 股目录检索会从全市场股票底座返回候选，再进入风险评估和个股详情页。
+            </p>
+          </div>
 
           <label className="grid gap-3 text-sm text-slate-500">
             当前仓位
@@ -154,8 +239,9 @@ export function RiskWorkbench({ stocks, initialPayload, initialPosition = 45 }) 
               {stock.name} <span className="text-sm text-slate-400">{stock.symbol}</span>
             </p>
             <p className="mt-2 text-sm text-slate-500">
-              {stock.sector} · {stock.market}
+              {stock.sector} 路 {stock.market}
             </p>
+            {currentOption?.summary ? <p className="mt-3 text-sm leading-6 text-slate-500">{currentOption.summary}</p> : null}
           </div>
         </section>
 

@@ -8,7 +8,7 @@ export const metadata = {
 
 export default async function RiskPage() {
   const [stockUniversePayload, initialAnalysisPayload] = await Promise.all([
-    getStockUniverse(),
+    getStockUniverse({ limit: 20 }),
     getStockAnalysis("300750", { position: 0.45 })
   ]);
 

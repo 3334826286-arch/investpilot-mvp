@@ -19,8 +19,6 @@ export async function generateStaticParams() {
   }));
 }
 
-export const dynamicParams = false;
-
 export async function generateMetadata({ params }) {
   const { symbol } = await params;
   const payload = await getStockAnalysis(symbol, { position: 0.45 });
