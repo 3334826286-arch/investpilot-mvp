@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import akshare as ak
@@ -10,6 +12,7 @@ from app.services.utils import infer_market
 
 
 CATALOG_CACHE_TTL_SECONDS = 60 * 60 * 12
+LOCAL_CATALOG_PATH = Path(__file__).resolve().parents[3] / "lib" / "data" / "a-share-catalog.json"
 
 
 def normalize_search_text(value: str) -> str:
@@ -28,6 +31,36 @@ def build_pinyin_tokens(name: str) -> tuple[str, str]:
 
 def load_stock_catalog() -> list[dict[str, Any]]:
     def builder() -> list[dict[str, Any]]:
+        if LOCAL_CATALOG_PATH.exists():
+            with LOCAL_CATALOG_PATH.open("r", encoding="utf-8") as file:
+                items = json.load(file)
+
+            normalized_items: list[dict[str, Any]] = []
+            for item in items:
+                symbol = str(item.get("symbol", "")).strip().zfill(6)
+                name = str(item.get("name", "")).strip().replace(" ", "")
+                if not symbol or not name:
+                    continue
+
+                full_pinyin = str(item.get("pinyin", "")).strip().lower()
+                initials = str(item.get("initials", "")).strip().lower()
+                if not full_pinyin or not initials:
+                    full_pinyin, initials = build_pinyin_tokens(name)
+
+                normalized_items.append(
+                    {
+                        "symbol": symbol,
+                        "name": name,
+                        "market": str(item.get("market") or infer_market(symbol)),
+                        "normalizedName": normalize_search_text(name),
+                        "pinyin": full_pinyin,
+                        "initials": initials,
+                    }
+                )
+
+            if normalized_items:
+                return normalized_items
+
         frame = ak.stock_info_a_code_name()
         items: list[dict[str, Any]] = []
 

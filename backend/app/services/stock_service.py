@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
@@ -640,16 +641,193 @@ def _build_selection_reasons(
     return reasons[:4]
 
 
-def _build_stock_payload(symbol: str, position: float = 0.45, market_context: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    history = _load_stock_history(symbol)
-    financial_frame = _load_financial_abstract(symbol)
-    if history.empty or financial_frame.empty:
+def _load_analysis_frames(symbol: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        history_future = executor.submit(_load_stock_history, symbol)
+        financial_future = executor.submit(_load_financial_abstract, symbol)
+        info_future = executor.submit(_load_stock_info, symbol)
+
+        history = history_future.result()
+
+        try:
+            financial_frame = financial_future.result()
+        except Exception:
+            financial_frame = pd.DataFrame()
+
+        try:
+            info_frame = info_future.result()
+        except Exception:
+            info_frame = pd.DataFrame()
+
+    return history, financial_frame, info_frame
+
+
+def _build_quote_driven_stock_payload(
+    *,
+    symbol: str,
+    history: pd.DataFrame,
+    info_frame: pd.DataFrame,
+    position: float,
+    market_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if history.empty:
         return None
 
-    try:
-        info_frame = _load_stock_info(symbol)
-    except Exception:
-        info_frame = pd.DataFrame()
+    history = history.tail(60).reset_index(drop=True)
+    latest = history.iloc[-1]
+    latest_close = to_float(latest["close"])
+    latest_high = to_float(latest["high"])
+    latest_low = to_float(latest["low"])
+    previous_close = to_float(history.iloc[-2]["close"]) if len(history) > 1 else latest_close
+    latest_change = ((latest_close - previous_close) / previous_close * 100) if previous_close else 0.0
+    latest_amplitude = ((latest_high - latest_low) / previous_close * 100) if previous_close else 0.0
+    latest_volume = to_float(latest["amount"])
+    latest_turnover = latest_volume * 100 * latest_close
+
+    closes = history["close"].map(to_float).tolist()
+    ma20 = sum(closes[-20:]) / min(len(closes[-20:]), 20)
+    ma60 = sum(closes) / max(len(closes), 1)
+    avg_volume_20 = history["amount"].tail(20).map(to_float).mean()
+    volume_ratio = latest_volume / avg_volume_20 if avg_volume_20 else 1.0
+    return_series = history["close"].map(to_float).pct_change().dropna()
+    volatility = return_series.std(ddof=0) * (252**0.5) * 100
+    max_drawdown = _calculate_max_drawdown(closes)
+
+    catalog_match = next((item for item in load_stock_catalog() if item["symbol"] == symbol), None)
+    seed = UNIVERSE_SEED_PROFILES.get(symbol, {})
+    industry = str(_info_value(info_frame, "行业") or seed.get("sector") or "行业待补充")
+    company_name = str(_info_value(info_frame, "股票简称") or seed.get("name") or (catalog_match["name"] if catalog_match else symbol))
+    market = infer_market(symbol)
+    market_context = market_context or {"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE}
+    systemic_score = int(market_context.get("systemicRiskScore", DEFAULT_SYSTEMIC_SCORE))
+
+    risk_profile, risk_notes, risk = _calculate_risk_profile(
+        industry=industry,
+        market_cap=0.0,
+        net_assets=0.0,
+        volatility=volatility,
+        max_drawdown=max_drawdown,
+        revenue_growth=0.0,
+        profit_growth=0.0,
+        position=position,
+        systemic_score=systemic_score,
+    )
+
+    screening = _build_screening_metrics(
+        latest_close=latest_close,
+        ma20=ma20,
+        ma60=ma60,
+        volume_ratio=volume_ratio,
+        price_to_book=0.0,
+        revenue_growth=0.0,
+        profit_growth=0.0,
+        risk_total_score=risk["totalScore"],
+    )
+    reasons = _build_selection_reasons(metrics=screening, industry=industry, risk_level=risk["level"])
+
+    trend_text = (
+        "股价运行在 20 日与 60 日均线之上，当前先按趋势修复结构处理。"
+        if latest_close >= ma20 >= ma60
+        else "股价仍在均线附近反复，当前更适合等待趋势与量能进一步确认。"
+        if latest_close >= ma20
+        else "股价仍低于中期均线，当前更偏观察而不是追涨。"
+    )
+    volume_text = (
+        f"最新成交量约为 20 日均量的 {volume_ratio:.2f} 倍，量能配合度较好。"
+        if volume_ratio >= 1.15
+        else f"最新成交量约为 20 日均量的 {volume_ratio:.2f} 倍，量能仍需继续观察。"
+    )
+
+    support = min(closes[-10:])
+    resistance = max(closes[-10:])
+    stock = {
+        "symbol": symbol,
+        "name": company_name,
+        "market": market,
+        "sector": industry,
+        "price": format_number(latest_close),
+        "changePercent": round(latest_change, 2),
+        "amplitude": format_percent(latest_amplitude),
+        "turnover": format_billions(latest_turnover),
+        "summary": "实时行情与价格序列已接入，当前先基于量价结构给出可执行的观察结论，财务与估值口径继续补齐。",
+        "thesis": [
+            "当前页面已切换到真实行情驱动，先解决价格、趋势、量能与波动判断能不能真实落地。",
+            "财务、估值与公告口径仍在继续补充，因此结论会先偏中性谨慎，不会在证据不完整时给出过强表态。",
+            "更适合先把它当研究入口和风控页使用，再逐步叠加更完整的财务与事件信息。",
+        ],
+        "coachNotes": [
+            risk["managementAdvice"],
+            "如果参与，优先围绕支撑位、压力位和趋势失效位做计划，而不是只看一日涨跌。",
+            "先确认自己是在做趋势跟随还是事件观察，避免用不完整的信息做重仓决策。",
+        ],
+        "technicalView": {
+            "trend": trend_text,
+            "volume": volume_text,
+            "support": f"{support:.2f}",
+            "resistance": f"{resistance:.2f}",
+        },
+        "fundamentals": [
+            {"key": "latest_close", "label": "最新收盘价", "value": format_number(latest_close)},
+            {"key": "ma20", "label": "20 日均线", "value": format_number(ma20)},
+            {"key": "ma60", "label": "60 日均线", "value": format_number(ma60)},
+            {"key": "volume_ratio", "label": "量比(20日)", "value": f"{volume_ratio:.2f}x"},
+        ],
+        "catalysts": [
+            "若成交量继续放大且价格稳在中期均线之上，趋势跟随资金更容易回流。",
+            f"{industry} 板块的热度切换会直接影响这类标的的承接与容错率。",
+            "财报、公告与研报链路补齐后，页面会继续加强估值与业绩维度判断。",
+        ],
+        "news": [
+            {
+                "title": f"近 5 个交易日区间涨跌幅约 {(((closes[-1] / closes[-6]) - 1) * 100) if len(closes) >= 6 and closes[-6] else 0:.1f}%。",
+                "source": "量价信号",
+            },
+            {"title": f"当前股价相对 20 日均线偏离约 {((latest_close / ma20) - 1) * 100 if ma20 else 0:.1f}%。", "source": "趋势监测"},
+            {"title": f"60 日区间最大回撤约 {max_drawdown:.1f}%，波动率约 {volatility:.1f}%。", "source": "风险统计"},
+        ],
+        "radarMetrics": [
+            {"name": "趋势", "value": screening["trend"]},
+            {"name": "成长", "value": 46},
+            {"name": "估值", "value": 45},
+            {"name": "资金", "value": round(clamp(volume_ratio * 45 + 20, 18, 88))},
+            {"name": "风控", "value": screening["risk"]},
+        ],
+        "priceSeries": [
+            {
+                "date": str(row["date"])[5:],
+                "open": round(to_float(row["open"]), 2),
+                "close": round(to_float(row["close"]), 2),
+                "low": round(to_float(row["low"]), 2),
+                "high": round(to_float(row["high"]), 2),
+                "volume": round(to_float(row["amount"]) / 10000, 2),
+            }
+            for _, row in history.tail(20).iterrows()
+        ],
+        "riskProfile": risk_profile,
+        "riskNotes": {
+            **risk_notes,
+            "valuation": "当前先用价格结构替代部分估值判断，完整估值口径会在财务与市值数据补齐后加强。",
+            "earnings": "业绩与财务字段仍在补充中，当前更适合先把页面用于趋势与风控观察。",
+        },
+        "selectionReasons": reasons,
+        "selectionSummary": "；".join(reasons[:3]),
+    }
+    return {"stock": stock, "risk": risk, "screening": screening}
+
+
+def _build_stock_payload(symbol: str, position: float = 0.45, market_context: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    history, financial_frame, info_frame = _load_analysis_frames(symbol)
+    if history.empty:
+        return None
+
+    if financial_frame.empty:
+        return _build_quote_driven_stock_payload(
+            symbol=symbol,
+            history=history,
+            info_frame=info_frame,
+            position=position,
+            market_context=market_context,
+        )
 
     history = history.tail(60).reset_index(drop=True)
     latest = history.iloc[-1]
@@ -707,6 +885,7 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
     )
 
     price_to_book = market_cap / net_assets if net_assets > 0 else 0.0
+    price_to_book_display = f"{price_to_book:.1f}x" if price_to_book > 0 else "待补充"
     screening = _build_screening_metrics(
         latest_close=latest_close,
         ma20=ma20,
@@ -751,7 +930,11 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
         ),
         "thesis": [
             f"最新报告期营业总收入同比 {revenue_growth:.1f}%，归母净利润同比 {profit_growth:.1f}%，当前仍处于数据验证阶段。",
-            f"当前市净率约 {price_to_book:.1f} 倍，所属行业为 {industry}，估值承接需要结合后续盈利兑现观察。",
+            (
+                f"当前市净率约 {price_to_book:.1f} 倍，所属行业为 {industry}，估值承接需要结合后续盈利兑现观察。"
+                if price_to_book > 0
+                else f"所属行业为 {industry}，当前估值口径仍在继续补齐，先结合趋势、量能与后续财务兑现做观察。"
+            ),
             "系统性市场环境仍会影响个股表现，择时与仓位管理的重要性不低于个股逻辑本身。",
         ],
         "coachNotes": [
@@ -766,7 +949,7 @@ def _build_stock_payload(symbol: str, position: float = 0.45, market_context: di
             "resistance": f"{resistance:.2f}",
         },
         "fundamentals": [
-            {"key": "pb", "label": "市净率(PB)", "value": f"{price_to_book:.1f}x"},
+            {"key": "pb", "label": "市净率(PB)", "value": price_to_book_display},
             {"key": "roe", "label": "ROE", "value": format_percent(roe)},
             {"key": "revenue_growth", "label": "营收同比", "value": format_percent(revenue_growth)},
             {"key": "gross_margin", "label": "销售毛利率", "value": format_percent(gross_margin)},
