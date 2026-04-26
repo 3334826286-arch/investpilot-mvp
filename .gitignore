@@ -1,0 +1,14 @@
+.next
+node_modules
+out
+dist
+.DS_Store
+npm-debug.log*
+.env
+.env.local
+backend\.env
+backend\.venv
+*.log
+release
+output
+tools

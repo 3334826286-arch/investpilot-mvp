@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: investpilot-fastapi
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /v1/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: INVESTPILOT_ENV
+        value: production
+      - key: INVESTPILOT_API_PREFIX
+        value: /v1
+      - key: INVESTPILOT_CORS_ORIGINS
+        value: "*"
+      - key: INVESTPILOT_MARKET_CACHE_TTL_SECONDS
+        value: "180"
+      - key: INVESTPILOT_STOCK_CACHE_TTL_SECONDS
+        value: "600"
+      - key: INVESTPILOT_SCREENER_CACHE_TTL_SECONDS
+        value: "600"
+      - key: INVESTPILOT_CALENDAR_CACHE_TTL_SECONDS
+        value: "1800"
+      - key: INVESTPILOT_SEARCH_CACHE_TTL_SECONDS
+        value: "900"
+      - key: INVESTPILOT_DOCUMENT_CACHE_TTL_SECONDS
+        value: "1800"
+      - key: INVESTPILOT_DEFAULT_WATCH_SYMBOLS
+        value: 300750,601899,000333,688111,600036
