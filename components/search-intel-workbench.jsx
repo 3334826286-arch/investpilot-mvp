@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { startTransition, useMemo, useState } from "react";
 import { DataStatusNote } from "@/components/data-status-note";
+import { recordSearchHistory } from "@/lib/guest-memory";
 
 function buildSearchUrl(query, limit = 6) {
   const search = new URLSearchParams();
@@ -16,7 +17,7 @@ function buildSearchUrl(query, limit = 6) {
 function buildDocumentHref(item) {
   const search = new URLSearchParams({
     text: item.extractText || `${item.title}\n${item.summary}`,
-    sourceName: item.source || "搜索情报",
+    sourceName: item.source || "研究工作台",
     sourceType: item.type || "search",
     autoSubmit: "1"
   });
@@ -64,25 +65,20 @@ function visibleSections(data, activeTab, sortMode) {
 
   const primaryEntries = entries.filter(([key]) => key !== "digest");
   const nonEmptyPrimaryEntries = primaryEntries.filter(([, section]) => section.count);
-
-  if (nonEmptyPrimaryEntries.length) {
-    return nonEmptyPrimaryEntries;
-  }
-
-  return entries.filter(([, section]) => section.count);
+  return nonEmptyPrimaryEntries.length ? nonEmptyPrimaryEntries : entries.filter(([, section]) => section.count);
 }
 
 function sectionDescription(sectionKey) {
   if (sectionKey === "news") {
-    return "优先看事件驱动、市场解读与主流媒体增量信息。";
+    return "优先查看事件驱动、公司动态与主流媒体增量信息。";
   }
   if (sectionKey === "announcements") {
-    return "公告更适合核对正式披露口径，判断是否涉及业绩、融资、股权或风险提示。";
+    return "公告适合核对正式披露口径，重点判断是否涉及财报、融资、股权、回购或风险提示。";
   }
   if (sectionKey === "research") {
-    return "研报更适合快速把握机构结论、评级变化与行业视角。";
+    return "研报适合快速把握机构结论、评级变化和行业视角。";
   }
-  return "没有输入个股关键词时，会优先展示市场级情报、宏观事件与重点财报日历。";
+  return "未输入明确个股时，会优先展示市场级情报摘要、宏观事件与重点日历。";
 }
 
 export function SearchIntelWorkbench({ initialPayload }) {
@@ -105,7 +101,7 @@ export function SearchIntelWorkbench({ initialPayload }) {
       const nextPayload = await response.json();
 
       if (!response.ok) {
-        throw new Error(nextPayload?.meta?.errorMessage || "情报搜索接口返回异常。");
+        throw new Error(nextPayload?.meta?.errorMessage || "研究工作台接口暂时不可用。");
       }
 
       startTransition(() => {
@@ -119,29 +115,22 @@ export function SearchIntelWorkbench({ initialPayload }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    const keyword = draftQuery.trim();
+    recordSearchHistory(keyword);
 
     try {
-      await loadQuery(draftQuery.trim());
+      await loadQuery(keyword);
     } catch (nextError) {
       setError(nextError.message);
     }
   }
 
-  async function handleExampleClick(example) {
+  async function handleQuickQuery(example) {
     setDraftQuery(example);
+    recordSearchHistory(example);
 
     try {
       await loadQuery(example);
-    } catch (nextError) {
-      setError(nextError.message);
-    }
-  }
-
-  async function handleCandidateClick(symbol) {
-    setDraftQuery(symbol);
-
-    try {
-      await loadQuery(symbol);
     } catch (nextError) {
       setError(nextError.message);
     }
@@ -158,7 +147,7 @@ export function SearchIntelWorkbench({ initialPayload }) {
       <section className="strong-panel rounded-[34px] px-5 py-6 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="section-kicker">情报搜索</p>
+            <p className="section-kicker">研究工作台</p>
             <h1 className="mt-2 font-display text-4xl font-semibold text-slate-950">{data.summary.title}</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">{data.summary.description}</p>
           </div>
@@ -169,14 +158,14 @@ export function SearchIntelWorkbench({ initialPayload }) {
           <input
             value={draftQuery}
             onChange={(event) => setDraftQuery(event.target.value)}
-            placeholder="输入股票代码、公司简称或拼音缩写，例如：300750、宁德时代、ndsd、zsyh"
+            placeholder="输入股票代码、公司简称或拼音缩写，例如：300750、宁德时代、ndsd、000002"
             className="h-12 flex-1 rounded-full border border-slate-900/10 bg-white px-4 text-sm outline-none transition focus:border-slate-900/30 focus:ring-4 focus:ring-slate-900/5"
           />
           <button
             type="submit"
             className="h-12 rounded-full bg-slate-950 px-5 text-sm font-medium text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)] transition hover:-translate-y-0.5"
           >
-            {isLoading ? "搜索中..." : "搜索情报"}
+            {isLoading ? "检索中…" : "开始检索"}
           </button>
         </form>
 
@@ -185,7 +174,7 @@ export function SearchIntelWorkbench({ initialPayload }) {
             <button
               key={item}
               type="button"
-              onClick={() => handleExampleClick(item)}
+              onClick={() => handleQuickQuery(item)}
               className="rounded-full border border-slate-900/10 bg-white px-3 py-2 text-sm text-slate-600 transition hover:border-slate-900/20 hover:text-slate-950"
             >
               {item}
@@ -211,7 +200,7 @@ export function SearchIntelWorkbench({ initialPayload }) {
 
       <section className="grid gap-6 xl:grid-cols-[0.96fr_1.04fr]">
         <div className="soft-panel rounded-[30px] p-5 sm:p-6">
-          <p className="section-kicker">搜索说明</p>
+          <p className="section-kicker">使用说明</p>
           <div className="mt-4 grid gap-3">
             {data.guide.tips.map((item) => (
               <div key={item} className="rounded-[22px] border border-slate-900/8 bg-white/86 px-4 py-4 text-sm leading-7 text-slate-600">
@@ -223,7 +212,7 @@ export function SearchIntelWorkbench({ initialPayload }) {
 
         <div className="soft-panel rounded-[30px] p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="section-kicker">匹配结果</p>
+            <p className="section-kicker">命中结果</p>
             <label className="flex items-center gap-2 text-sm text-slate-500">
               <span>排序</span>
               <select
@@ -245,35 +234,36 @@ export function SearchIntelWorkbench({ initialPayload }) {
                     {data.resolved.name} <span className="text-sm text-slate-400">{data.resolved.symbol}</span>
                   </p>
                   <p className="mt-2 text-sm text-slate-500">
-                    {data.resolved.market} · 命中方式 {data.resolved.matchType === "pinyin" ? "拼音 / 缩写" : data.resolved.matchType === "symbol" ? "代码" : "简称"}
+                    {data.resolved.market} · 命中方式{" "}
+                    {data.resolved.matchType === "pinyin" ? "拼音 / 缩写" : data.resolved.matchType === "symbol" ? "代码" : "简称"}
                   </p>
                   <p className="mt-3 text-sm leading-7 text-slate-600">
-                    当前已聚合 {data.summary.totalHits} 条个股相关情报，可继续进入个股详情页查看更完整的风险、走势与中文分析结论。
+                    当前已聚合 {data.summary.totalHits} 条相关情报，可继续进入个股研究页查看更完整的公告、财报、研报与风险解释。
                   </p>
                 </div>
                 <Link
                   href={`/stock/${data.resolved.symbol}`}
                   className="rounded-full border border-slate-900/10 bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:-translate-y-0.5"
                 >
-                  查看个股详情
+                  查看个股研究页
                 </Link>
               </div>
             </div>
           ) : (
             <div className="mt-4 rounded-[24px] border border-dashed border-slate-900/12 bg-white/72 px-4 py-4 text-sm leading-7 text-slate-600">
-              当前还没有锁定明确个股。你可以输入股票代码、完整简称或拼音缩写，系统会优先返回更稳定的结果。
+              当前还没有锁定明确个股。你可以输入股票代码、完整简称或拼音缩写，系统会优先返回更稳定的匹配结果。
             </div>
           )}
 
           {data.candidates.length > 1 ? (
             <div className="mt-4">
-              <p className="text-sm font-medium text-slate-950">可切换的候选股票</p>
+              <p className="text-sm font-medium text-slate-950">可切换候选</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {data.candidates.map((item) => (
                   <button
                     key={item.symbol}
                     type="button"
-                    onClick={() => handleCandidateClick(item.symbol)}
+                    onClick={() => handleQuickQuery(item.symbol)}
                     className="rounded-full border border-slate-900/10 bg-white px-3 py-2 text-sm text-slate-600 transition hover:border-slate-900/20 hover:text-slate-950"
                   >
                     {item.name} {item.symbol}
@@ -374,7 +364,7 @@ export function SearchIntelWorkbench({ initialPayload }) {
           ))
         ) : (
           <div className="soft-panel rounded-[28px] p-5 text-sm leading-7 text-slate-600">
-            当前分类下还没有可展示的结果。你可以切换分类，或换一个更具体的股票代码 / 公司简称继续搜索。
+            当前分类下还没有可展示的结果。你可以切换分类，或换一个更具体的股票代码 / 公司简称继续检索。
           </div>
         )}
       </section>

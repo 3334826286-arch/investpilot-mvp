@@ -5,6 +5,7 @@ import { SectionHeading } from "@/components/section-heading";
 import { SignalBadge } from "@/components/signal-badge";
 import { DataStatusNote } from "@/components/data-status-note";
 import { EChartPanel } from "@/components/charts/echart-panel";
+import { StockVisitTracker } from "@/components/stock-visit-tracker";
 import { WatchlistToggle } from "@/components/watchlist-toggle";
 import { buildCandlestickOption, buildRadarOption } from "@/lib/chart-options";
 import { formatPercent, getRiskTone } from "@/lib/format";
@@ -107,7 +108,7 @@ export async function generateMetadata({ params }) {
   const stock = payload?.data?.stock;
 
   return {
-    title: stock ? `${stock.name} ${stock.symbol} | InvestPilot` : "个股详情 | InvestPilot"
+    title: stock ? `${stock.name} ${stock.symbol} | InvestPilot` : "个股研究页 | InvestPilot"
   };
 }
 
@@ -135,6 +136,7 @@ export default async function StockDetailPage({ params }) {
 
   return (
     <PlatformShell>
+      <StockVisitTracker symbol={stock.symbol} name={stock.name} />
       <div className="grid gap-6">
         <section className="strong-panel rounded-[34px] px-5 py-6 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">

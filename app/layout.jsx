@@ -15,13 +15,13 @@ const displayFont = IBM_Plex_Sans({
 
 export const metadata = {
   title: {
-    default: "InvestPilot | 中文投资分析与决策辅助平台",
+    default: "InvestPilot | 中文投资研究与决策辅助平台",
     template: "%s | InvestPilot"
   },
   description:
-    "一个面向中文用户的智能投资分析平台，帮助你更快理解市场、评估风险、筛选机会，并提炼复杂财经信息。",
+    "面向中文用户的开放式投资研究平台，覆盖市场总览、个股研究、公告与研报检索、文档提炼和风险辅助判断，支持游客直接使用主要功能。",
   applicationName: "InvestPilot",
-  keywords: ["投资分析", "市场检测", "风险评估", "财经日历", "量化选股", "中文金融平台"]
+  keywords: ["投资研究", "市场分析", "风险评估", "个股研究", "财经日历", "文档提炼"]
 };
 
 export default function RootLayout({ children }) {

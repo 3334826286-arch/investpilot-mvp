@@ -2,18 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { navigationItems } from "@/lib/mock-data";
+import { primaryNavigation } from "@/lib/site";
 
 export function TopNav() {
   const pathname = usePathname();
 
   return (
     <nav className="soft-panel mt-4 flex flex-wrap items-center gap-2 rounded-[22px] p-2">
-      {navigationItems.map((item) => {
+      {primaryNavigation.map((item) => {
         const active =
-          item.href === "/"
-            ? pathname === item.href
-            : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          item.href === "/" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
         return (
           <Link

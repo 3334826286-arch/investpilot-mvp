@@ -4,11 +4,12 @@ import Link from "next/link";
 import { startTransition, useDeferredValue, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WatchlistToggle } from "@/components/watchlist-toggle";
+import { recordSearchHistory } from "@/lib/guest-memory";
 
 export function StockSearch({ stocks }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState(stocks.slice(0, 5));
+  const [matches, setMatches] = useState(stocks.slice(0, 6));
   const [isSearching, setIsSearching] = useState(false);
   const [feedback, setFeedback] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -18,7 +19,7 @@ export function StockSearch({ stocks }) {
     const keyword = deferredQuery.trim();
 
     if (!keyword) {
-      setMatches(stocks.slice(0, 5));
+      setMatches(stocks.slice(0, 6));
       setFeedback("");
       return () => controller.abort();
     }
@@ -27,14 +28,14 @@ export function StockSearch({ stocks }) {
     setFeedback("");
     setMatches([]);
 
-    fetch(`/api/v1/stocks/universe?q=${encodeURIComponent(keyword)}&limit=5`, {
+    fetch(`/api/v1/stocks/universe?q=${encodeURIComponent(keyword)}&limit=6`, {
       signal: controller.signal,
       cache: "no-store"
     })
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload?.meta?.errorMessage || "股票搜索接口返回异常。");
+          throw new Error(payload?.meta?.errorMessage || "股票搜索接口暂时不可用。");
         }
 
         startTransition(() => {
@@ -58,14 +59,19 @@ export function StockSearch({ stocks }) {
     return () => controller.abort();
   }, [deferredQuery, stocks]);
 
+  function navigateToSymbol(symbol) {
+    startTransition(() => {
+      router.push(`/stock/${symbol}`);
+    });
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
     const keyword = query.trim().normalize("NFKC");
+    recordSearchHistory(keyword);
 
     if (/^\d{6}$/.test(keyword)) {
-      startTransition(() => {
-        router.push(`/stock/${keyword}`);
-      });
+      navigateToSymbol(keyword);
       return;
     }
 
@@ -75,20 +81,15 @@ export function StockSearch({ stocks }) {
       return;
     }
 
-    startTransition(() => {
-      router.push(`/stock/${target.symbol}`);
-    });
+    navigateToSymbol(target.symbol);
   }
 
   return (
-    <div className="strong-panel rounded-[28px] p-5 sm:p-6">
+    <div className="strong-panel rounded-[30px] p-5 sm:p-6">
       <p className="section-kicker">快速搜索</p>
-      <h2 className="mt-2 font-display text-2xl font-semibold text-slate-950">从市场总览进入个股分析</h2>
+      <h2 className="mt-2 font-display text-2xl font-semibold text-slate-950">从搜索直接进入个股研究</h2>
       <p className="mt-3 text-sm leading-7 text-slate-600">
-        直接输入股票代码、公司简称或拼音缩写，快速进入个股详情、风险评估与交易辅助建议。
-      </p>
-      <p className="mt-2 text-xs leading-6 text-slate-500">
-        当前默认展示市场关注池；输入关键词后，会自动切换到全市场 A 股目录检索，支持代码、简称与拼音缩写。
+        输入股票代码、公司简称或拼音缩写，直接进入个股研究页。页面会优先展示稳定候选，再逐步切到更完整的 A 股目录检索。
       </p>
 
       <form className="mt-5 flex flex-col gap-3 sm:flex-row" onSubmit={handleSubmit}>
@@ -107,8 +108,9 @@ export function StockSearch({ stocks }) {
       </form>
 
       <div className="mt-5 grid gap-3">
-        {isSearching ? <p className="text-sm text-slate-500">正在检索更完整的 A 股目录...</p> : null}
+        {isSearching ? <p className="text-sm text-slate-500">正在检索更完整的 A 股目录…</p> : null}
         {feedback ? <p className="text-sm text-amber-700">{feedback}</p> : null}
+
         {matches.length ? (
           matches.map((item) => (
             <div

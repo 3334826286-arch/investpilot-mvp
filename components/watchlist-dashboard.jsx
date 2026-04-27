@@ -78,13 +78,10 @@ export function WatchlistDashboard({ universePayload }) {
     <div className="grid gap-6">
       <section className="strong-panel rounded-[34px] px-5 py-6 sm:px-6">
         <p className="section-kicker">自选股</p>
-        <h1 className="mt-2 font-display text-4xl font-semibold text-slate-950">用本地自选列表持续跟踪重点标的</h1>
+        <h1 className="mt-2 font-display text-4xl font-semibold text-slate-950">先用游客自选股保存研究重点</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-          第一版先使用本地存储记录自选股，不依赖登录。你可以添加、删除，并查看每只股票的最新风险与分析摘要。
+          当前版本优先支持游客模式，不强制登录。你可以先在本地维护自选股列表，持续跟踪核心标的的研究页、风险变化和最新研究摘要。
         </p>
-        {universePayload?.data?.poolMode === "seeded" ? (
-          <p className="mt-3 text-sm text-slate-500">当前候选池为后端种子池，后续会继续扩展为更完整的实时股票池。</p>
-        ) : null}
         <DataStatusNote meta={universePayload?.meta} className="mt-4" />
       </section>
 
@@ -127,7 +124,7 @@ export function WatchlistDashboard({ universePayload }) {
             })
           ) : (
             <div className="soft-panel rounded-[28px] p-6 text-sm leading-7 text-slate-600">
-              {loading ? "正在加载自选股分析..." : "当前还没有添加自选股。可以先从右侧候选池开始。"}
+              {loading ? "正在加载自选股分析…" : "当前还没有添加自选股。可以先从右侧候选池开始。"}
             </div>
           )}
           {error ? <div className="text-sm text-rose-600">{error}</div> : null}
@@ -135,7 +132,7 @@ export function WatchlistDashboard({ universePayload }) {
 
         <div className="soft-panel rounded-[30px] p-5 sm:p-6">
           <p className="section-kicker">候选池</p>
-          <h2 className="mt-2 font-display text-2xl font-semibold text-slate-950">添加重点跟踪标的</h2>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-slate-950">补齐你想持续跟踪的标的</h2>
           <div className="mt-5 grid gap-3">
             {suggestions.map((item) => (
               <div key={item.symbol} className="rounded-[22px] border border-slate-900/8 bg-white/84 px-4 py-4">
