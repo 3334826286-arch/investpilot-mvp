@@ -147,6 +147,27 @@ def _find_index_row(spot_frame: pd.DataFrame, code: str, name: str) -> pd.Series
     return matched.iloc[0]
 
 
+def _latest_metric_rows(frame: pd.DataFrame, date_column: str, value_column: str, limit: int = 2) -> list[pd.Series]:
+    if frame.empty or date_column not in frame.columns or value_column not in frame.columns:
+        return []
+
+    working = frame.copy()
+    working[date_column] = pd.to_datetime(working[date_column], errors="coerce")
+    working[value_column] = pd.to_numeric(working[value_column], errors="coerce")
+    working = working.loc[working[date_column].notna() & working[value_column].notna()].sort_values(date_column)
+    if working.empty:
+        return []
+    return [row for _, row in working.tail(limit).iterrows()]
+
+
+def _build_macro_signal_item(label: str, bias: str, detail: str) -> dict[str, str]:
+    return {
+        "label": label,
+        "bias": bias,
+        "detail": detail,
+    }
+
+
 def _build_overview(avg_change: float, up_count: int, down_count: int, northbound_net: float, systemic_score: int) -> dict[str, str]:
     breadth_ratio = up_count / max(down_count, 1)
 
@@ -307,10 +328,99 @@ def _build_global_markets() -> tuple[list[dict[str, Any]], dict[str, str]]:
 
 
 def _build_macro_signals() -> tuple[list[dict[str, Any]], dict[str, str]]:
+    items: list[dict[str, str]] = []
+
+    lpr_rows = _latest_metric_rows(_safe_frame(_load_macro_china_lpr), "TRADE_DATE", "LPR1Y")
+    if lpr_rows:
+        latest = lpr_rows[-1]
+        previous = lpr_rows[-2] if len(lpr_rows) > 1 else None
+        latest_value = to_float(latest.get("LPR1Y") or latest.get("RATE_1"))
+        previous_value = to_float(previous.get("LPR1Y") or previous.get("RATE_1")) if previous is not None else latest_value
+        delta = round(latest_value - previous_value, 2)
+        if delta < -0.01:
+            bias = "中性偏多"
+        elif delta > 0.01:
+            bias = "中性偏空"
+        else:
+            bias = "中性"
+        items.append(
+            _build_macro_signal_item(
+                "利率环境",
+                bias,
+                f"最近一期 1 年期 LPR 为 {latest_value:.2f}%，较前值变化 {delta:+.2f} 个百分点，反映当前融资成本环境。",
+            )
+        )
+
+    cpi_rows = _latest_metric_rows(_safe_frame(_load_macro_china_cpi), "日期", "今值")
+    if cpi_rows:
+        latest = cpi_rows[-1]
+        latest_value = to_float(latest["今值"])
+        if latest_value <= 2.5:
+            bias = "中性偏多"
+        elif latest_value >= 3.5:
+            bias = "中性偏空"
+        else:
+            bias = "中性"
+        items.append(
+            _build_macro_signal_item(
+                "通胀信号",
+                bias,
+                f"中国最新 CPI 同比为 {latest_value:.2f}%，物价压力仍处在可跟踪区间，对流动性约束相对有限。",
+            )
+        )
+
+    pmi_rows = _latest_metric_rows(_safe_frame(_load_macro_china_pmi), "日期", "今值")
+    if pmi_rows:
+        latest = pmi_rows[-1]
+        latest_value = to_float(latest["今值"])
+        if latest_value >= 50.5:
+            bias = "中性偏多"
+        elif latest_value < 49.5:
+            bias = "中性偏空"
+        else:
+            bias = "中性"
+        items.append(
+            _build_macro_signal_item(
+                "制造业景气",
+                bias,
+                f"中国制造业 PMI 最新值为 {latest_value:.2f}，用来观察工业景气、订单修复与风险偏好方向。",
+            )
+        )
+
+    usa_cpi_rows = _latest_metric_rows(_safe_frame(_load_macro_usa_cpi), "发布日期", "现值")
+    if usa_cpi_rows:
+        latest = usa_cpi_rows[-1]
+        latest_value = to_float(latest["现值"])
+        if latest_value <= 2.8:
+            bias = "中性偏多"
+        elif latest_value >= 3.5:
+            bias = "中性偏空"
+        else:
+            bias = "中性"
+        items.append(
+            _build_macro_signal_item(
+                "海外通胀",
+                bias,
+                f"美国 CPI 同比最新值为 {latest_value:.2f}%，会影响美元利率预期与全球风险资产定价。",
+            )
+        )
+
+    if len(items) >= 3:
+        return items, {
+            "source": "real",
+            "label": "真实宏观卡片",
+            "note": "宏观卡片优先使用 LPR、CPI、PMI 与美国 CPI 等真实公开数据，缺失时再做局部降级。",
+        }
+    if items:
+        return items, {
+            "source": "real",
+            "label": "部分真实宏观卡片",
+            "note": "当前宏观卡片以可用的真实数据为主，尚未取到全部序列时会局部降级。",
+        }
     return [], {
         "source": "mock",
         "label": "演示宏观卡片",
-        "note": "宏观卡片当前仍为演示数据，后续将替换为更稳定的真实宏观序列。",
+        "note": "宏观卡片当前未能取到可用宏观数据，暂时回退为演示占位。",
     }
 
 
