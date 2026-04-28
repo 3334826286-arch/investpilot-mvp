@@ -1,4 +1,5 @@
 import { IBM_Plex_Sans, Noto_Sans_SC } from "next/font/google";
+import { ChunkRecovery } from "@/components/chunk-recovery";
 import "./globals.css";
 
 const bodyFont = Noto_Sans_SC({
@@ -27,7 +28,10 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="zh-CN">
-      <body className={`${bodyFont.variable} ${displayFont.variable}`}>{children}</body>
+      <body className={`${bodyFont.variable} ${displayFont.variable}`}>
+        <ChunkRecovery />
+        {children}
+      </body>
     </html>
   );
 }
