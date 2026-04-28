@@ -6,12 +6,15 @@ import { primaryNavigation } from "@/lib/site";
 
 export function TopNav() {
   const pathname = usePathname();
+  const currentPath = typeof pathname === "string" && pathname.length ? pathname : "/";
 
   return (
     <nav className="soft-panel mt-4 flex flex-wrap items-center gap-2 rounded-[22px] p-2">
       {primaryNavigation.map((item) => {
         const active =
-          item.href === "/" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          item.href === "/"
+            ? currentPath === item.href
+            : currentPath === item.href || currentPath.startsWith(`${item.href}/`);
 
         return (
           <Link
