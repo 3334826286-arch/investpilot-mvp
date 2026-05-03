@@ -6,10 +6,10 @@ ENV PORT=7860
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
+COPY requirements-lock.txt /app/requirements-lock.txt
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
+    && pip install --no-cache-dir -r /app/requirements-lock.txt
 
 COPY app /app/app
 

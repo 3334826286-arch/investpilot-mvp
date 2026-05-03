@@ -1469,11 +1469,14 @@ def _build_hot_rank_candidate(symbol: str, name: str, price: float, change_perce
 
 
 def build_stock_analysis(symbol: str, position: float = 0.45) -> dict[str, Any] | None:
-    payload = _build_stock_payload(
-        symbol=symbol,
-        position=position,
-        market_context={"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE},
-    )
+    try:
+        payload = _build_stock_payload(
+            symbol=symbol,
+            position=position,
+            market_context={"systemicRiskScore": DEFAULT_SYSTEMIC_SCORE},
+        )
+    except Exception:
+        payload = None
     if payload is None:
         seed_payload = _build_seed_stock_analysis(symbol=symbol, position=position)
         if seed_payload is not None:

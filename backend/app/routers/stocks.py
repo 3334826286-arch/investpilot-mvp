@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
+from app.core.errors import AppError, ErrorCodes
 from app.core.response import build_response
 from app.services.stock_service import build_stock_analysis, build_stock_universe
 
@@ -15,5 +16,10 @@ def get_stock_universe(query: str = Query("", alias="q"), limit: int = Query(20,
 def get_stock_analysis(symbol: str, position: float = Query(0.45, ge=0.1, le=1.0)) -> dict:
     payload = build_stock_analysis(symbol=symbol, position=position)
     if payload is None:
-        raise HTTPException(status_code=404, detail="Stock not found")
+        raise AppError(
+            status_code=404,
+            error_code=ErrorCodes.NOT_FOUND,
+            message="未找到对应股票，请检查代码或简称后重试。",
+            details={"symbol": symbol},
+        )
     return build_response(payload)

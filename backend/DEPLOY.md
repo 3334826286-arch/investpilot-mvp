@@ -17,6 +17,7 @@ Important files:
 - `render.yaml`
 - `backend/.python-version`
 - `backend/requirements.txt`
+- `backend/requirements-lock.txt`
 
 Recommended first change after deploy:
 
@@ -39,7 +40,7 @@ npx localtunnel --port 8010
 
 ### Container deployment
 
-The backend now includes a production-friendly `Dockerfile`.
+The backend now includes a production-friendly `Dockerfile`, and production installs are pinned through `requirements-lock.txt`.
 
 Example runtime command inside a container platform:
 
@@ -50,12 +51,14 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}
 ### Required environment variables
 
 - `INVESTPILOT_CORS_ORIGINS`
+- `INVESTPILOT_LOG_LEVEL`
 - `INVESTPILOT_API_PREFIX` (default `/v1`)
 
 ### Recommended production example
 
 ```env
 INVESTPILOT_ENV=production
+INVESTPILOT_LOG_LEVEL=INFO
 INVESTPILOT_API_PREFIX=/v1
 INVESTPILOT_CORS_ORIGINS=https://your-netlify-site.netlify.app
 INVESTPILOT_MARKET_CACHE_TTL_SECONDS=180
