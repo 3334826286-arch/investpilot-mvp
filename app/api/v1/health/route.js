@@ -5,6 +5,8 @@ export function GET() {
   return Response.json(
     buildServiceEnvelope("/v1/health", {
       status: "ok",
+      appVersion: appConfig.appVersion,
+      releaseChannel: appConfig.releaseChannel,
       dataSourceMode: appConfig.dataSourceMode,
       fastApiConfigured: canUseFastApi(),
       fastApiBaseUrl: appConfig.fastApiBaseUrl || null

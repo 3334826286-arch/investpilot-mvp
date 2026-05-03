@@ -37,6 +37,9 @@ export function PlatformShell({ children }) {
           <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr_0.9fr]">
             <div>
               <p className="font-display text-xl font-semibold text-slate-950">{siteConfig.name}</p>
+              <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                Version {siteConfig.version} · {siteConfig.releaseChannel}
+              </p>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
                 面向中文用户的开放式投资研究平台。产品重点在于帮助用户理解市场、整理研究信息、识别风险与提升研究效率，而不是替代用户做投资决策。
               </p>

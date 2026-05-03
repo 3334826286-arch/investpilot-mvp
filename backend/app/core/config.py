@@ -5,7 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "InvestPilot API"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
+    release_channel: str = "public-beta"
     env: str = "development"
     api_prefix: str = "/v1"
     cors_origins: str = "*"
