@@ -52,6 +52,7 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}
 
 - `INVESTPILOT_CORS_ORIGINS`
 - `INVESTPILOT_LOG_LEVEL`
+- `INVESTPILOT_SLOW_REQUEST_THRESHOLD_MS`
 - `INVESTPILOT_API_PREFIX` (default `/v1`)
 
 ### Recommended production example
@@ -59,6 +60,7 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}
 ```env
 INVESTPILOT_ENV=production
 INVESTPILOT_LOG_LEVEL=INFO
+INVESTPILOT_SLOW_REQUEST_THRESHOLD_MS=1200
 INVESTPILOT_API_PREFIX=/v1
 INVESTPILOT_CORS_ORIGINS=https://your-netlify-site.netlify.app
 INVESTPILOT_MARKET_CACHE_TTL_SECONDS=180
@@ -69,3 +71,19 @@ INVESTPILOT_SEARCH_CACHE_TTL_SECONDS=900
 INVESTPILOT_DOCUMENT_CACHE_TTL_SECONDS=1800
 INVESTPILOT_DEFAULT_WATCH_SYMBOLS=300750,601899,000333,688111,600036
 ```
+
+### Operational checks
+
+After a production deploy, verify:
+
+- `/v1/health`
+- `/v1/health/live`
+- `/v1/health/ready`
+- `/v1/health/status`
+
+Every response now includes:
+
+- `X-Request-ID`
+- `X-App-Version`
+- `X-Release-Channel`
+- `X-Response-Time-Ms`

@@ -16,9 +16,11 @@ services:
       - key: INVESTPILOT_LOG_LEVEL
         value: INFO
       - key: INVESTPILOT_APP_VERSION
-        value: "0.2.0"
+        value: "0.2.1"
       - key: INVESTPILOT_RELEASE_CHANNEL
         value: public-beta
+      - key: INVESTPILOT_SLOW_REQUEST_THRESHOLD_MS
+        value: "1200"
       - key: INVESTPILOT_API_PREFIX
         value: /v1
       - key: INVESTPILOT_CORS_ORIGINS

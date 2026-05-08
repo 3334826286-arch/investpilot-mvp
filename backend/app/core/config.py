@@ -5,12 +5,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "InvestPilot API"
-    app_version: str = "0.2.0"
+    app_version: str = "0.2.1"
     release_channel: str = "public-beta"
     log_level: str = "INFO"
     env: str = "development"
     api_prefix: str = "/v1"
     cors_origins: str = "*"
+    slow_request_threshold_ms: int = 1200
     advanced_data_mode: str = "hybrid"
     preferred_fundamentals_provider: str = "AKShare / Eastmoney"
     preferred_news_provider: str = "Eastmoney News"

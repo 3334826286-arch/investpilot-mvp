@@ -46,3 +46,10 @@ def get_logger(name: str) -> logging.Logger:
 
 def log_event(logger: logging.Logger, level: int, message: str, **payload: Any) -> None:
     logger.log(level, message, extra={"payload": payload})
+
+
+def log_metric(logger: logging.Logger, metric: str, value: float | int, **dimensions: Any) -> None:
+    payload = {"metric": metric, "value": value}
+    if dimensions:
+        payload["dimensions"] = dimensions
+    logger.log(logging.INFO, "metric", extra={"payload": payload})

@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCodes
-from app.core.logging import get_logger, log_event, setup_logging
+from app.core.logging import get_logger, log_event, log_metric, setup_logging
 from app.core.response import build_error_response
 from app.routers import calendar, documents, health, market, screener, search, stocks
 
@@ -27,7 +27,7 @@ app.add_middleware(
     allow_origins=["*"] if allow_all_origins else settings.cors_origin_list,
     allow_credentials=not allow_all_origins,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 
@@ -58,15 +58,35 @@ async def request_context_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     response.headers["X-App-Version"] = settings.app_version
     response.headers["X-Release-Channel"] = settings.release_channel
+    response.headers["X-Response-Time-Ms"] = str(duration_ms)
+
+    log_level = logging.INFO
+    event_name = "request_completed"
+    if response.status_code >= 500:
+        log_level = logging.ERROR
+    elif response.status_code >= 400:
+        log_level = logging.WARNING
+    elif duration_ms >= settings.slow_request_threshold_ms:
+        log_level = logging.WARNING
+        event_name = "request_slow"
+
     log_event(
         logger,
-        logging.INFO,
-        "request_completed",
+        log_level,
+        event_name,
         requestId=request_id,
         method=request.method,
         path=request.url.path,
         statusCode=response.status_code,
         durationMs=duration_ms,
+    )
+    log_metric(
+        logger,
+        "http_request_duration_ms",
+        duration_ms,
+        method=request.method,
+        path=request.url.path,
+        statusCode=response.status_code,
     )
     return response
 
@@ -199,6 +219,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             request_id=request_id,
         ),
     )
+
 
 app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(market.router, prefix=settings.api_prefix)
