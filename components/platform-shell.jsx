@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { PlatformStatusStrip } from "@/components/platform-status-strip";
 import { TopNav } from "@/components/top-nav";
+import { getSystemStatus } from "@/lib/services/system-service";
 import { legalNavigation, productNavigation, siteConfig } from "@/lib/site";
 
-export function PlatformShell({ children }) {
+export async function PlatformShell({ children }) {
+  const systemStatusPayload = await getSystemStatus();
+
   return (
     <div className="relative min-h-screen">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
@@ -30,6 +34,7 @@ export function PlatformShell({ children }) {
         </header>
 
         <TopNav />
+        <PlatformStatusStrip payload={systemStatusPayload} />
 
         <main className="flex-1 py-6">{children}</main>
 
