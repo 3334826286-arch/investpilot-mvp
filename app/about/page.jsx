@@ -45,12 +45,12 @@ export default function AboutPage() {
       <div className="rounded-[24px] border border-slate-900/8 bg-white/84 p-5">
         <p className="font-medium text-slate-950">产品定位</p>
         <p className="mt-3">
-          我们将 InvestPilot 定位为“中文投资研究与决策辅助平台”，而不是资讯门户、喊单工具或封闭式会员系统。产品优先追求开放使用、低门槛体验和长期可迭代的数据研究能力。
+          我们把 InvestPilot 定位为“中文投资研究与决策辅助平台”，而不是资讯门户、喊单工具或封闭式会员系统。产品优先追求开放使用、低门槛体验和长期可迭代的数据研究能力。
         </p>
       </div>
       <div className="rounded-[24px] border border-slate-900/8 bg-white/84 p-5">
         <p className="font-medium text-slate-950">产品原则</p>
-        <ul className="mt-3">
+        <ul className="mt-3 space-y-2">
           <li>游客优先：不强制登录，主要功能默认向游客开放。</li>
           <li>研究优先：围绕市场、个股、公告、研报、文档构建完整研究链路。</li>
           <li>透明优先：页面尽量标明数据来源、口径和回退状态。</li>

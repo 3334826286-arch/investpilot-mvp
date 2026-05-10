@@ -50,7 +50,7 @@ export function PlatformStatusStrip({ payload }) {
         <span>{modeLabel}</span>
         <span>·</span>
         <span>{providerLabel}</span>
-        <Link href="/about" className="rounded-full border border-slate-900/10 bg-white px-3 py-1 text-slate-700 hover:text-slate-950">
+        <Link href="/data-sources" className="rounded-full border border-slate-900/10 bg-white px-3 py-1 text-slate-700 hover:text-slate-950">
           查看数据说明
         </Link>
       </div>

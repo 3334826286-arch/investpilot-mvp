@@ -9,8 +9,8 @@ export default function FaqPage() {
   return (
     <ContentPage
       kicker="FAQ"
-      title="使用前最常见的问题"
-      description="我们优先把定位、边界、数据口径与游客使用方式说清楚，减少误解和试错成本。"
+      title="使用前最常见的几个问题"
+      description="我们优先把定位、边界、数据口径与游客使用方式说明白，减少误解和试错成本。"
       aside={
         <section className="soft-panel rounded-[30px] p-5 sm:p-6">
           <p className="section-kicker">使用建议</p>

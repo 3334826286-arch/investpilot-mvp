@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { startTransition, useMemo, useState } from "react";
 import { DataStatusNote } from "@/components/data-status-note";
+import { ProductFeedbackState } from "@/components/product-feedback-state";
 import { recordSearchHistory } from "@/lib/guest-memory";
 
 function buildSearchUrl(query, limit = 6) {
@@ -194,7 +195,14 @@ export function SearchIntelWorkbench({ initialPayload }) {
           </span>
         </div>
 
-        {error ? <p className="mt-4 text-sm text-rose-600">{error}</p> : null}
+        {error ? (
+          <ProductFeedbackState
+            title="研究工作台暂时未完成这次检索"
+            description={error}
+            tone="danger"
+            className="mt-4"
+          />
+        ) : null}
         <DataStatusNote meta={payload.meta} className="mt-4" />
       </section>
 
@@ -250,9 +258,11 @@ export function SearchIntelWorkbench({ initialPayload }) {
               </div>
             </div>
           ) : (
-            <div className="mt-4 rounded-[24px] border border-dashed border-slate-900/12 bg-white/72 px-4 py-4 text-sm leading-7 text-slate-600">
-              当前还没有锁定明确个股。你可以输入股票代码、完整简称或拼音缩写，系统会优先返回更稳定的匹配结果。
-            </div>
+            <ProductFeedbackState
+              title="还没有锁定明确标的"
+              description="你可以输入股票代码、完整简称或拼音缩写，系统会优先返回更稳定的匹配结果。"
+              className="mt-4"
+            />
           )}
 
           {data.candidates.length > 1 ? (
@@ -356,16 +366,16 @@ export function SearchIntelWorkbench({ initialPayload }) {
                   ))}
                 </div>
               ) : (
-                <div className="mt-5 rounded-[24px] border border-dashed border-slate-900/12 bg-white/72 px-4 py-4 text-sm leading-7 text-slate-600">
-                  {section.emptyMessage}
-                </div>
+                <ProductFeedbackState title="当前分类暂无结果" description={section.emptyMessage} className="mt-5" />
               )}
             </article>
           ))
         ) : (
-          <div className="soft-panel rounded-[28px] p-5 text-sm leading-7 text-slate-600">
-            当前分类下还没有可展示的结果。你可以切换分类，或换一个更具体的股票代码 / 公司简称继续检索。
-          </div>
+          <ProductFeedbackState
+            title="当前筛选下暂无可展示结果"
+            description="你可以切换分类，或者换一个更具体的股票代码、公司简称继续检索。"
+            className="soft-panel rounded-[28px] p-5"
+          />
         )}
       </section>
     </div>

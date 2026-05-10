@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { DataStatusNote } from "@/components/data-status-note";
+import { ProductFeedbackState } from "@/components/product-feedback-state";
 
 const SAMPLE_TEXT = `某锂电龙头 2026 年一季度实现营业收入 312.4 亿元，同比增长 18.9%，归母净利润 42.1 亿元，同比增长 21.3%。储能业务毛利率环比提升 1.8 个百分点，海外订单恢复明显，经营现金流由负转正。公司表示，二季度仍将维持较高研发投入，并继续推进海外客户拓展。需要关注的风险包括：碳酸锂价格波动可能影响盈利弹性，海外需求节奏仍需进一步验证，若行业价格战重新加剧，估值修复空间可能受到压制。`;
 
@@ -147,7 +148,14 @@ export function DocumentWorkbench({ initialResult, initialMeta, initialDraft = n
         </form>
 
         {file ? <p className="mt-4 text-sm text-slate-500">当前文件：{file.name}</p> : null}
-        {error ? <p className="mt-4 text-sm text-rose-600">{error}</p> : null}
+        {error ? (
+          <ProductFeedbackState
+            title="这次文档提炼没有成功完成"
+            description={error}
+            tone="danger"
+            className="mt-4"
+          />
+        ) : null}
       </section>
 
       <section className="soft-panel rounded-[30px] p-5 sm:p-6">
